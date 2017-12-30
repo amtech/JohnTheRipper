@@ -20,9 +20,6 @@ john_register_one(&fmt_oldoffice);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               256
-#endif
 #endif
 
 #include "md5.h"
@@ -36,6 +33,7 @@ john_register_one(&fmt_oldoffice);
 #include "options.h"
 #include "unicode.h"
 #include "dyna_salt.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "oldoffice"
@@ -112,13 +110,7 @@ static custom_salt *cur_salt = &cs;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self);
 #endif
 	if (options.target_enc == UTF_8)
 		self->params.plaintext_length = 3 * PLAINTEXT_LENGTH > 125 ?
