@@ -28,25 +28,17 @@ john_register_one(&fmt_FGT);
 
 #include <string.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "common.h"
 #include "formats.h"
 #include "misc.h"
-
 #include "sha.h"
 #include "base64_convert.h"
 #include "simd-intrinsics.h"
-#ifdef _OPENMP
-#include <omp.h>
-#ifdef __MIC__
-#ifndef OMP_SCALE
-#define OMP_SCALE               8192
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE               32768 // tuned on AMD K8 dual-HT (XOP)
-#endif
-#endif // __MIC__
-#endif
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"Fortigate"
@@ -88,13 +80,7 @@ static uint32_t (*crypt_key)[BINARY_SIZE / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
 #if defined (_OPENMP)
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
