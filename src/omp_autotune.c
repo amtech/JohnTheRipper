@@ -7,7 +7,6 @@
 
 #ifdef _OPENMP
 #include <omp.h>
-#endif
 
 #include "john.h"
 #include "options.h"
@@ -118,3 +117,5 @@ int omp_autotune(struct fmt_main *self)
 
 	return threads;
 }
+
+#endif /* _OPENMP */
