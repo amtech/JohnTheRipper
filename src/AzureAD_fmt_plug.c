@@ -20,8 +20,11 @@ john_register_one(&fmt_AzureAD);
 
 #include <string.h>
 
-#include "arch.h"
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
+#include "arch.h"
 #include "md4.h"
 #include "pbkdf2_hmac_sha256.h"
 #include "common.h"
@@ -30,23 +33,8 @@ john_register_one(&fmt_AzureAD);
 #include "AzureAD_common.h"
 #include "unicode.h"
 #include "johnswap.h"
-
-//#undef SIMD_COEF_32
-//#undef SIMD_PARA_SHA256
-
-#ifdef _OPENMP
-#ifdef SIMD_COEF_32
-#ifndef OMP_SCALE
-#define OMP_SCALE               64  // FIXME
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE               64  // FIXME
-#endif
-#endif
-#include <omp.h>
-#endif
 #include "simd-intrinsics.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL             "AzureAD"
@@ -80,13 +68,7 @@ static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self);
 #endif
 	saved_key = mem_calloc_align(self->params.max_keys_per_crypt,
 	                             sizeof(*saved_key), MEM_ALIGN_WORD);
