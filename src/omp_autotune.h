@@ -8,6 +8,6 @@
 #ifndef _HAVE_OMP_AUTOTUNE_H
 #define _HAVE_OMP_AUTOTUNE_H
 
-extern int omp_autotune(struct fmt_main *self);
+extern int omp_autotune(struct fmt_main *format, struct db_main *db);
 
 #endif /* _HAVE_OMP_AUTOTUNE_H */

@@ -10,6 +10,12 @@
  * modification, are permitted.
  */
 
+#if FMT_EXTERNS_H
+extern struct fmt_main fmt_sevenzip;
+#elif FMT_REGISTERS_H
+john_register_one(&fmt_sevenzip);
+#else
+
 /*
  * We've seen one single sample where we could not trust the padding check
  * (early rejection). To be able to crack such hashes, define this to 0.
@@ -17,19 +23,10 @@
  */
 #define TRUST_PADDING 0
 
-#if FMT_EXTERNS_H
-extern struct fmt_main fmt_sevenzip;
-#elif FMT_REGISTERS_H
-john_register_one(&fmt_sevenzip);
-#else
-
 #include <string.h>
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               1 // tuned on core i7
-#endif
 #endif
 
 #include "arch.h"
@@ -52,6 +49,7 @@ john_register_one(&fmt_sevenzip);
 #include "dyna_salt.h"
 #include "lzma/LzmaDec.h"
 #include "lzma/Lzma2Dec.h"
+#include "omp_autotune.h"
 
 #define FORMAT_LABEL            "7z"
 #define FORMAT_NAME             "7-Zip"
@@ -161,15 +159,9 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 	CRC32_t crc;
-#if defined (_OPENMP)
-	int threads = omp_get_max_threads();
 
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
-#endif
+	omp_autotune(self, NULL);
+
 	// allocate 1 more slot to handle the tail of vector buffer
 	max_kpc = self->params.max_keys_per_crypt + 1;
 
@@ -186,6 +178,13 @@ static void init(struct fmt_main *self)
 
 	if (options.target_enc == UTF_8)
 		self->params.plaintext_length = MIN(125, 3 * PLAINTEXT_LENGTH);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -773,7 +772,7 @@ struct fmt_main fmt_sevenzip = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

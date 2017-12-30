@@ -110,7 +110,7 @@ static custom_salt *cur_salt = &cs;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	omp_autotune(self);
+	omp_autotune(self, NULL);
 #endif
 	if (options.target_enc == UTF_8)
 		self->params.plaintext_length = 3 * PLAINTEXT_LENGTH > 125 ?
@@ -126,6 +126,13 @@ static void init(struct fmt_main *self)
 	any_cracked = 0;
 	cracked_size = sizeof(*cracked) * self->params.max_keys_per_crypt;
 	cracked = mem_calloc(1, cracked_size);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -526,7 +533,7 @@ struct fmt_main fmt_oldoffice = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		prepare,
 		valid,
 		split,

@@ -99,13 +99,20 @@ static uchar *challenge;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	omp_autotune(self);
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
 	saved_plain = mem_calloc(self->params.max_keys_per_crypt,
 	                         sizeof(*saved_plain));
 	output = mem_calloc(self->params.max_keys_per_crypt, sizeof(*output));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -344,7 +351,7 @@ struct fmt_main fmt_NETLM = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		prepare,
 		valid,
 		split,

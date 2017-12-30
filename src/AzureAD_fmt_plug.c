@@ -68,7 +68,7 @@ static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	omp_autotune(self);
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc_align(self->params.max_keys_per_crypt,
 	                             sizeof(*saved_key), MEM_ALIGN_WORD);
@@ -76,6 +76,13 @@ static void init(struct fmt_main *self)
 	                             sizeof(*saved_nt), MEM_ALIGN_WORD);
 	crypt_out = mem_calloc_align(self->params.max_keys_per_crypt,
 	                             sizeof(*crypt_out), MEM_ALIGN_WORD);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -221,7 +228,7 @@ struct fmt_main fmt_AzureAD = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		AzureAD_common_valid,
 		AzureAD_common_split,
