@@ -39,17 +39,10 @@ john_register_one(&fmt_NETLM);
 #else
 
 #include <string.h>
+#include <openssl/des.h>
+
 #ifdef _OPENMP
 #include <omp.h>
-#ifdef __MIC__
-#ifndef OMP_SCALE
-#define OMP_SCALE            1024
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE            131072 // core i7 no HT
-#endif
-#endif // __MIC__
 #endif
 
 #include "misc.h"
@@ -57,8 +50,7 @@ john_register_one(&fmt_NETLM);
 #include "formats.h"
 #include "memory.h"
 #include "unicode.h"
-
-#include <openssl/des.h>
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #ifndef uchar
@@ -107,13 +99,7 @@ static uchar *challenge;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
