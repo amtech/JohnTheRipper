@@ -15,7 +15,8 @@
 #include "timer.h"
 #include "memdbg.h"
 
-#define SAMPLE_TIME 0.020  /* Seconds to test speed (20 ms) */
+//#define OMP_DEBUG
+#define SAMPLE_TIME 0.010  /* Seconds to test speed (10 ms) */
 #define REQ_GAIN 1.05      /* Minimum boost to consider a better scale */
 #define MAX_TUNE_TIME 0.1  /* If we're slower than 100 ms, stop here */
 #define MAX_NO_PROGRESS 3  /* Don't bother trying higher scale if this many
@@ -34,16 +35,38 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 	int no_progress = 0;
 	int min_crypts = 0;
 	void *salt;
-	char key[] = "testkey0";
+	char key[] = "tune0000";
 	sTimer timer;
 	double duration;
 
-	if (threads == 1 || omp_autotune_running)
-		return threads;
+	if (omp_autotune_running) {
+#ifdef OMP_DEBUG
+		if (john_main_process && options.verbosity == VERB_MAX)
+			fprintf(stderr, "(kpc %d return %d)\n", fmt->params.max_keys_per_crypt, fmt->params.max_keys_per_crypt / mkpc);
+#endif
+		return fmt->params.max_keys_per_crypt / mkpc;
+	} else if (threads == 1) {
+#ifdef OMP_DEBUG
+		if (john_main_process && options.verbosity == VERB_MAX)
+			fprintf(stderr, "(return 1)\n");
+#endif
+		return 1;
+	}
+
+#ifdef OMP_DEBUG
+	if (john_main_process && options.verbosity == VERB_MAX)
+		fprintf(stderr, "\nautotune called from %s()\n", format ? "init" : "reset");
+#endif
 
 	if (!db) {
 		fmt = format;
-		mkpc = fmt->params.max_keys_per_crypt * threads;
+		mkpc = fmt->params.max_keys_per_crypt;
+		fmt->params.min_keys_per_crypt *= threads;
+		fmt->params.max_keys_per_crypt *= threads;
+#ifdef OMP_DEBUG
+		if (john_main_process && options.verbosity == VERB_MAX)
+			fprintf(stderr, "%s initial mkpc %d\n", fmt->params.label, mkpc);
+#endif
 		return threads;
 	}
 
@@ -51,13 +74,11 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 	    options.verbosity > VERB_DEFAULT && bench_running)
 		fprintf(stderr, "\n");
 
-	omp_autotune_running = 1;
 	if (john_main_process && options.verbosity == VERB_MAX)
 		fprintf(stderr, "%s OMP autotune using %s db\n",
 		        fmt->params.label, db->real ? "real" : "test");
 
-
-	fmt->params.min_keys_per_crypt *= threads;
+	omp_autotune_running = 1;
 
 	// Find most expensive salt, for auto-tune
 	{
@@ -74,7 +95,7 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 
 	do {
 		int i;
-		int this_kpc = mkpc * scale;
+		int this_kpc = mkpc * threads * scale;
 		int cps, crypts = 0;
 
 		fmt->params.max_keys_per_crypt = this_kpc;
@@ -88,6 +109,8 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 		// Load keys
 		fmt->methods.clear_keys();
 		for (i = 0; i < this_kpc; i++) {
+			key[4] = '0' + (i / 1000) % 10;
+			key[5] = '0' + (i / 100) % 10;
 			key[6] = '0' + (i / 10) % 10;
 			key[7] = '0' + i % 10;
 			fmt->methods.set_key(key, i);
@@ -106,8 +129,8 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 		cps = crypts / duration;
 
 		if (john_main_process && options.verbosity == VERB_MAX)
-			fprintf(stderr, "scale %d: %d crypts in %f seconds, %d c/s",
-			        scale, crypts, duration, (int)(crypts / duration));
+			fprintf(stderr, "scale %d: %d (%d) crypts in %f seconds, %d c/s",
+			        scale, crypts, this_kpc, duration, (int)(crypts / duration));
 
 		if (cps >= (best_cps * REQ_GAIN)) {
 			if (john_main_process && options.verbosity == VERB_MAX)
@@ -124,30 +147,35 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 
 		min_crypts = crypts;
 
+		if (duration > MAX_TUNE_TIME || no_progress > MAX_NO_PROGRESS)
+			break;
+
 		// Double each time
 		scale *= 2;
-	} while (duration < MAX_TUNE_TIME && no_progress < MAX_NO_PROGRESS);
-
-	//if (!fmt->methods.tunable_cost_value[0] || !db->real)
-	//	dyna_salt_remove(salt);
+	} while (1);
 
 	if (john_main_process && options.verbosity > VERB_DEFAULT)
 		fprintf(stderr, "Autotune found best speed at OMP scale of %d\n",
 		        best_scale);
 	log_event("Autotune found best speed at OMP scale of %d", best_scale);
 
-	threads *= best_scale;
-	fmt->params.max_keys_per_crypt = mkpc * threads;
+	fmt->params.max_keys_per_crypt = mkpc * threads * best_scale;
 
-	// Release old buffers
-	fmt->methods.done();
+	if (best_scale != scale) {
+		// Release old buffers
+		fmt->methods.done();
 
-	// Set up buffers for chosen scale
-	fmt->methods.init(fmt);
+		// Set up buffers for chosen scale
+		fmt->methods.init(fmt);
+	}
 
 	omp_autotune_running = 0;
 
-	return threads;
+#ifdef OMP_DEBUG
+	if (john_main_process && options.verbosity == VERB_MAX)
+		fprintf(stderr, "autotune return %dx%d=%d\n", threads, best_scale, threads * best_scale);
+#endif
+	return threads * best_scale;
 }
 
 #endif /* _OPENMP */
