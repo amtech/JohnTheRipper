@@ -160,7 +160,9 @@ static void init(struct fmt_main *self)
 {
 	CRC32_t crc;
 
+#if defined (_OPENMP)
 	omp_autotune(self, NULL);
+#endif
 
 	// allocate 1 more slot to handle the tail of vector buffer
 	max_kpc = self->params.max_keys_per_crypt + 1;
