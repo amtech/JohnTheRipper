@@ -21,24 +21,6 @@ john_register_one(&fmt_eigrp);
 
 #ifdef _OPENMP
 #include <omp.h>
-// OMP_SCALE on Intel core i7
-// 2048 - 12030k/11596k
-// 4096 - 12575k/13114k
-// 8192 - 13316k/13921k
-// 16k  - 13547k/14458k
-// 32k  - 16106k/14700k
-// 64k  - 16106k/14700k
-// 64k  - 16674k/14674k
-// 128k - 17795k/14663k  --test=0 has a tiny delay, but not bad.
-#ifdef __MIC__
-#ifndef OMP_SCALE
-#define OMP_SCALE               8192
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE               131072
-#endif
-#endif
 #endif
 
 #include "arch.h"
@@ -49,6 +31,7 @@ john_register_one(&fmt_eigrp);
 #include "params.h"
 #include "options.h"
 #include "escrypt/sha256.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "eigrp"
@@ -97,13 +80,7 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -118,6 +95,13 @@ static void done(void)
 	MEM_FREE(crypt_out);
 	MEM_FREE(saved_len);
 	MEM_FREE(saved_key);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static int valid(char *ciphertext, struct fmt_main *self)
@@ -368,7 +352,7 @@ struct fmt_main fmt_eigrp = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
