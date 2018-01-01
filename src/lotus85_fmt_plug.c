@@ -23,13 +23,11 @@ john_register_one(&fmt_lotus_85);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               64  // XXX tune me!
-#endif
 #endif
 
 #include "formats.h"
 #include "common.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 /* Plugin definition */
@@ -293,13 +291,7 @@ static void get_user_id_secret_key(const char *password, uint8_t *secret_key)
 static void lotus85_init(struct fmt_main *self)
 {
 #if defined (_OPENMP)
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	lotus85_saved_passwords = mem_calloc(self->params.max_keys_per_crypt,
 	                                     PLAINTEXT_LENGTH + 1);
@@ -314,6 +306,13 @@ static void done(void)
 	MEM_FREE(lotus85_last_binary_hash2);
 	MEM_FREE(lotus85_last_binary_hash1);
 	MEM_FREE(lotus85_saved_passwords);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 /* Check if given ciphertext (hash) format is valid */
@@ -461,7 +460,7 @@ struct fmt_main fmt_lotus_85 =
 	}, {
 		lotus85_init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		lotus85_valid,
 		fmt_default_split,
