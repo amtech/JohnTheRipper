@@ -22,21 +22,17 @@ extern struct fmt_main fmt_sybaseprop;
 john_register_one(&fmt_sybaseprop);
 #else
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "params.h"
 #include "common.h"
 #include "formats.h"
 #include "options.h"
-
 #include "syb-prop_repro.h"
-
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE           16
-#endif
-#endif
-
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define BLOCK_SIZE 8
@@ -77,18 +73,19 @@ static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*crypt_out));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -216,7 +213,7 @@ struct fmt_main fmt_sybaseprop = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

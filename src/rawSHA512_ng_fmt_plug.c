@@ -16,17 +16,11 @@ extern struct fmt_main fmt_rawSHA512_ng;
 john_register_one(&fmt_rawSHA512_ng);
 #else
 
+#include <stdint.h>
+#include <string.h>
+
 #if _OPENMP
 #include <omp.h>
-#if __XOP__
-#ifndef OMP_SCALE
-#define OMP_SCALE                 768 /* AMD */
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE                 2048 /* Intel */
-#endif
-#endif
 #endif
 
 #include "misc.h"
@@ -37,15 +31,12 @@ john_register_one(&fmt_rawSHA512_ng);
 #endif
 #endif
 
-#include <stdint.h>
-#include <string.h>
-
 #include "pseudo_intrinsics.h"
 #include "common.h"
 #include "formats.h"
 #include "johnswap.h"
 #include "rawSHA512_common.h"
-
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #if __MIC__
@@ -189,13 +180,7 @@ static void init(struct fmt_main *self)
 {
     int i;
 #ifdef _OPENMP
-    int threads = omp_get_max_threads();
-
-    if (threads > 1) {
-        self->params.min_keys_per_crypt *= threads;
-        threads *= OMP_SCALE;
-        self->params.max_keys_per_crypt *= threads;
-    }
+	omp_autotune(self, NULL);
 #endif
     saved_key = mem_calloc_align(self->params.max_keys_per_crypt,
                            sizeof(*saved_key), MEM_ALIGN_SIMD);
@@ -204,6 +189,13 @@ static void init(struct fmt_main *self)
 	                          sizeof(uint64_t), MEM_ALIGN_SIMD);
 }
 
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
+}
 
 static void done(void)
 {
@@ -494,7 +486,7 @@ struct fmt_main fmt_rawSHA512_ng = {
     }, {
         init,
         done,
-        fmt_default_reset,
+        reset,
         fmt_default_prepare,
         sha512_common_valid,
         sha512_common_split,

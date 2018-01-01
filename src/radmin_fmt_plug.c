@@ -20,15 +20,6 @@ john_register_one(&fmt_radmin);
 
 #ifdef _OPENMP
 #include <omp.h>
-// Tuned on core i7 quad HT
-//   1   7445K
-//  16  12155K
-//  32  12470K  ** this was chosen.
-//  64  12608k
-// 128  12508k
-#ifndef OMP_SCALE
-#define OMP_SCALE     32
-#endif
 #endif
 
 #include "md5.h"
@@ -38,6 +29,7 @@ john_register_one(&fmt_radmin);
 #include "formats.h"
 #include "params.h"
 #include "options.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "RAdmin"
@@ -75,18 +67,19 @@ static uint32_t (*crypt_out)[8];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*crypt_out));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -218,7 +211,7 @@ struct fmt_main fmt_radmin = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		split,

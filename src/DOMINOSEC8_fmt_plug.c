@@ -38,9 +38,10 @@ john_register_one(&fmt_DOMINOSEC8);
 
 #include <ctype.h>
 #include <string.h>
-
-#ifdef DOMINOSEC_32BIT
 #include <stdint.h>
+
+#ifdef _OPENMP
+#include <omp.h>
 #endif
 
 #include "misc.h"
@@ -48,12 +49,7 @@ john_register_one(&fmt_DOMINOSEC8);
 #include "common.h"
 #undef SIMD_COEF_32
 #include "pbkdf2_hmac_sha1.h"
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               128
-#endif
-#endif
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"dominosec8"
@@ -176,19 +172,20 @@ static struct fmt_tests tests[] = {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt, sizeof(*saved_key));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt, sizeof(*crypt_out));
 	crypt_out_real = mem_calloc(self->params.max_keys_per_crypt, sizeof(*crypt_out_real));
 	digest34  = mem_calloc(self->params.max_keys_per_crypt, sizeof(*digest34));
 	keys_changed = salt_changed = 0;
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -777,7 +774,7 @@ struct fmt_main fmt_DOMINOSEC8 = {
 	{
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

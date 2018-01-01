@@ -17,22 +17,19 @@ john_register_one(&fmt_XSHA);
 
 #ifdef SIMD_COEF_32
 #define NBKEYS				(SIMD_COEF_32 * SIMD_PARA_SHA1)
-
 #ifdef _OPENMP
-static unsigned int threads = 1;
+static unsigned int sc_threads = 1;
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE			128
 #endif
 #endif
-#endif
-#include "simd-intrinsics.h"
 
+#include "simd-intrinsics.h"
 #include "params.h"
 #include "common.h"
 #include "formats.h"
 #include "sha.h"
 #include "johnswap.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL			"xsha"
@@ -99,15 +96,19 @@ static void init(struct fmt_main *self)
 {
 #ifdef SIMD_COEF_32
 #if defined (_OPENMP)
-	threads = omp_get_max_threads();
-	self->params.min_keys_per_crypt = threads * NBKEYS;
-	threads *= OMP_SCALE;
-	self->params.max_keys_per_crypt = threads * NBKEYS;
+	sc_threads = omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc_align(self->params.max_keys_per_crypt,
 	                             SHA_BUF_SIZ * 4, MEM_ALIGN_SIMD);
 	crypt_key = mem_calloc_align(self->params.max_keys_per_crypt,
 	                             BINARY_SIZE, MEM_ALIGN_SIMD);
+#endif
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
 #endif
 }
 
@@ -205,7 +206,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 	int i = 0;
 #if defined(_OPENMP)
 #pragma omp parallel for
-	for (i = 0; i < threads; i++) {
+	for (i = 0; i < sc_threads; i++) {
 #endif
 		unsigned int *in = &saved_key[i*NBKEYS*SHA_BUF_SIZ];
 		unsigned int *out = &crypt_key[i*NBKEYS*BINARY_SIZE/4];
@@ -240,7 +241,7 @@ static int cmp_all(void *binary, int count)
 	unsigned int x, y;
 
 #ifdef _OPENMP
-	for (y = 0; y < SIMD_PARA_SHA1*threads; y++)
+	for (y = 0; y < SIMD_PARA_SHA1 * sc_threads; y++)
 #else
 	for (y = 0; y < SIMD_PARA_SHA1; y++)
 #endif
@@ -313,7 +314,7 @@ struct fmt_main fmt_XSHA = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

@@ -19,25 +19,7 @@ john_register_one(&fmt_md2_);
 
 #ifdef _OPENMP
 #include <omp.h>
-// OMP_SCALE tuned on core i7 quad core HT
-// 1   - 153k
-// 64  - 433k
-// 128 - 572k
-// 256 - 612k
-// 512 - 543k
-// 1k  - 680k  ** chosen
-// 2k  - 660k
-// 4k  - 670k
-// 8k  - 680k
-// 16k - 650k
-#ifndef OMP_SCALE
-#ifdef __MIC__
-#define OMP_SCALE  32
-#else
-#define OMP_SCALE  (1024)
-#endif // __MIC__
-#endif // OMP_SCALE
-#endif // _OPENMP
+#endif
 
 #include "arch.h"
 #include "sph_md2.h"
@@ -46,6 +28,7 @@ john_register_one(&fmt_md2_);
 #include "formats.h"
 #include "params.h"
 #include "options.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"MD2"
@@ -76,18 +59,19 @@ static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*crypt_out));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -219,7 +203,7 @@ struct fmt_main fmt_md2_ = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		split,

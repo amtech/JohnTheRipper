@@ -39,15 +39,6 @@ john_register_one(&fmt_ctrxns);
 #include <string.h>
 
 #ifdef _OPENMP
-#ifdef SIMD_COEF_32
-#ifndef OMP_SCALE
-#define OMP_SCALE                       1024
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE                       2048
-#endif
-#endif
 #include <omp.h>
 #endif
 
@@ -63,6 +54,7 @@ john_register_one(&fmt_ctrxns);
 #include "simd-intrinsics.h"
 #include "common.h"
 #include "sha.h"
+#include "omp_autotune.h"
 #include "memdbg.h"	// Must be last included header
 
 #define FORMAT_LABEL                    "Citrix_NS10"
@@ -115,13 +107,7 @@ static uint32_t (*crypt_key)[BINARY_SIZE / 4];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 #ifdef SIMD_COEF_32
 	saved_key = mem_calloc_align(self->params.max_keys_per_crypt / NBKEYS,
@@ -134,6 +120,13 @@ static void init(struct fmt_main *self)
 	                       sizeof(*saved_key));
 	crypt_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*crypt_key));
+#endif
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
 #endif
 }
 
@@ -327,7 +320,7 @@ struct fmt_main fmt_ctrxns = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

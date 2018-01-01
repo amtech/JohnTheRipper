@@ -51,19 +51,8 @@ john_register_one(&fmt_mssql12);
 #include "sha2.h"
 #include "johnswap.h"
 #include "simd-intrinsics.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
-
-#ifdef _OPENMP
-#ifdef SIMD_COEF_64
-#ifndef OMP_SCALE
-#define OMP_SCALE               2048
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE               1024  // tuned K8-dual HT
-#endif
-#endif
-#endif
 
 #define FORMAT_LABEL            "mssql12"
 #define FORMAT_NAME             "MS SQL 2012/2014"
@@ -165,13 +154,7 @@ static void set_key_enc(char *_key, int index);
 static void init(struct fmt_main *self)
 {
 #if defined (_OPENMP)
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 #ifdef SIMD_COEF_64
 	saved_key = mem_calloc_align(self->params.max_keys_per_crypt,
@@ -195,6 +178,13 @@ static void init(struct fmt_main *self)
 	if (options.target_enc != ISO_8859_1 &&
 	         options.target_enc != ASCII)
 		self->methods.set_key = set_key_enc;
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -465,7 +455,7 @@ struct fmt_main fmt_mssql12 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

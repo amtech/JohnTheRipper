@@ -11,7 +11,7 @@
  * See doc/README.format-epi for information on the input file format.
  *
  * Updated Dec, 2014, JimF.  Added OMP, and allowed more than one hash to be
- * processed at once (OMP_SCALE stuff).
+ * processed at once.
  */
 
 #if FMT_EXTERNS_H
@@ -22,24 +22,16 @@ john_register_one(&fmt_EPI);
 
 #include <string.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "common.h"
 #include "formats.h"
-
 #include "sha.h"
-#ifdef _OPENMP
-#include <omp.h>
-#ifdef __MIC__
-#ifndef OMP_SCALE
-#define OMP_SCALE              8192
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE              32768   // Tuned, K8-dual HT
-#endif
-#endif // __MIC__
-#endif
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define CIPHERTEXT_LENGTH  105
@@ -69,13 +61,7 @@ static struct fmt_tests global_tests[] =
 static void init(struct fmt_main *self)
 {
 #if defined (_OPENMP)
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	key_len   = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*key_len));
@@ -83,6 +69,13 @@ static void init(struct fmt_main *self)
 	                       sizeof(*saved_key));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*crypt_out));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -240,7 +233,7 @@ struct fmt_main fmt_EPI =
 	{ // fmt_methods
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

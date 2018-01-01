@@ -51,9 +51,6 @@ john_register_one(&fmt_mskrb5);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE          1024
-#endif
 #endif
 
 #include "arch.h"
@@ -66,6 +63,7 @@ john_register_one(&fmt_mskrb5);
 #include "hmacmd5.h"
 #include "md4.h"
 #include "rc4.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL       "krb5pa-md5"
@@ -130,13 +128,7 @@ static int keys_prepared;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_plain = mem_calloc(self->params.max_keys_per_crypt,
 	                         sizeof(*saved_plain));
@@ -162,6 +154,13 @@ static void init(struct fmt_main *self)
 			tests[2].ciphertext = "$mskrb5$$$057cd5cb706b3de18e059912b1f057e3$fe2e561bd4e42767e972835ea99f08582ba526e62a6a2b6f61364e30aca7c6631929d427";
 		}
 	}
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -440,7 +439,7 @@ struct fmt_main fmt_mskrb5 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		split,

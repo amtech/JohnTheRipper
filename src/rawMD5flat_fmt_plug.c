@@ -9,7 +9,6 @@
  */
 
 #include "arch.h"
-
 #if USE_EXPERIMENTAL
 
 #if FMT_EXTERNS_H
@@ -20,27 +19,18 @@ john_register_one(&fmt_rawMD5f);
 
 #include <string.h>
 
-#include "md5.h"
-#include "common.h"
-#include "formats.h"
-
 #if !FAST_FORMATS_OMP
 #undef _OPENMP
 #endif
-
 #ifdef _OPENMP
-#ifdef SIMD_COEF_32
-#ifndef OMP_SCALE
-#define OMP_SCALE               1024
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE               2048
-#endif
-#endif
 #include <omp.h>
 #endif
+
+#include "md5.h"
+#include "common.h"
+#include "formats.h"
 #include "simd-intrinsics.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #ifdef SIMD_COEF_32
@@ -103,13 +93,7 @@ static uint32_t (*crypt_key)[DIGEST_SIZE/4];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	sz = self->params.max_keys_per_crypt * 64;
 #ifndef SIMD_COEF_32
@@ -122,6 +106,13 @@ static void init(struct fmt_main *self)
 	                             sizeof(*saved_key), MEM_ALIGN_SIMD);
 	crypt_key = mem_calloc_align(self->params.max_keys_per_crypt/NBKEYS,
 	                             sizeof(*crypt_key), MEM_ALIGN_SIMD);
+#endif
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
 #endif
 }
 
@@ -321,7 +312,7 @@ struct fmt_main fmt_rawMD5f = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		split,

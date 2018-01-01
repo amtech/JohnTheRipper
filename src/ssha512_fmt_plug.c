@@ -12,6 +12,12 @@ extern struct fmt_main fmt_saltedsha2;
 john_register_one(&fmt_saltedsha2);
 #else
 
+#include <string.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "formats.h"
@@ -21,22 +27,8 @@ john_register_one(&fmt_saltedsha2);
 #include "sha2.h"
 #include "base64_convert.h"
 #include "simd-intrinsics.h"
-#include <string.h>
 #include "rawSHA512_common.h"
-
-#ifdef _OPENMP
-#ifdef SIMD_COEF_64
-#ifndef OMP_SCALE
-#define OMP_SCALE               1024
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE				2048
-#endif
-#endif
-#include <omp.h>
-#endif
-
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL                    "SSHA512"
@@ -93,14 +85,9 @@ static void init(struct fmt_main *self)
 #ifdef SIMD_COEF_64
 	unsigned int i, j;
 #endif
-#ifdef _OPENMP
-	int threads = omp_get_max_threads();
 
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+#ifdef _OPENMP
+	omp_autotune(self, NULL);
 #endif
 	saved_len = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_len));
@@ -126,6 +113,13 @@ static void init(struct fmt_main *self)
 		}
 	}
 	max_count = self->params.max_keys_per_crypt;
+#endif
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
 #endif
 }
 
@@ -293,7 +287,7 @@ struct fmt_main fmt_saltedsha2 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		sha512_common_valid_nsldap,
 		fmt_default_split,

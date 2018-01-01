@@ -29,9 +29,6 @@ john_register_one(&fmt_KeePass);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               1
-#endif
 #endif
 
 #include "arch.h"
@@ -45,6 +42,7 @@ john_register_one(&fmt_KeePass);
 #include "aes.h"
 #include "twofish.h"
 #include "chacha.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "KeePass"
@@ -121,13 +119,7 @@ static void transform_key(char *masterkey, keepass_salt_t *csp,
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	keepass_key = mem_calloc(self->params.max_keys_per_crypt,
 				sizeof(*keepass_key));
@@ -136,6 +128,13 @@ static void init(struct fmt_main *self)
 	cracked = mem_calloc(cracked_size, 1);
 
 	Twofish_initialise();
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -305,7 +304,7 @@ struct fmt_main fmt_KeePass = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		keepass_valid,
 		fmt_default_split,

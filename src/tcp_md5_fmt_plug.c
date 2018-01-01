@@ -15,17 +15,9 @@ john_register_one(&fmt_tcpmd5);
 #else
 
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
-#ifdef __MIC__
-#ifndef OMP_SCALE
-#define OMP_SCALE 8192
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE 32768  // scaled K8-dual HT
-#endif
-#endif
 #endif
 
 #include "arch.h"
@@ -35,6 +27,7 @@ john_register_one(&fmt_tcpmd5);
 #include "formats.h"
 #include "params.h"
 #include "options.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "tcp-md5"
@@ -75,13 +68,7 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -89,6 +76,13 @@ static void init(struct fmt_main *self)
 	                       sizeof(*saved_len));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*crypt_out));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -244,7 +238,7 @@ struct fmt_main fmt_tcpmd5 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

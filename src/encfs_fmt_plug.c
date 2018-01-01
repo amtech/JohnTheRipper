@@ -19,9 +19,6 @@ john_register_one(&fmt_encfs);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE           1
-#endif
 #endif
 
 #include "arch.h"
@@ -33,6 +30,7 @@ john_register_one(&fmt_encfs);
 #include "johnswap.h"
 #include "encfs_common.h"
 #include "pbkdf2_hmac_sha1.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL        "EncFS"
@@ -79,18 +77,19 @@ static struct fmt_tests encfs_tests[] = {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+    omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc_align(sizeof(*saved_key), self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 	any_cracked = 0;
 	cracked_size = sizeof(*cracked) * self->params.max_keys_per_crypt;
 	cracked = mem_calloc_align(sizeof(*cracked), self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined(_OPENMP) && OPENSSL_VERSION_NUMBER >= 0x10000000
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -209,7 +208,7 @@ struct fmt_main fmt_encfs = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		encfs_common_valid,
 		fmt_default_split,

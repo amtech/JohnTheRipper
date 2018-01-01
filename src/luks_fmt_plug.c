@@ -38,9 +38,6 @@ john_register_one(&fmt_luks);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               1
-#endif
 #endif
 
 #include "arch.h"
@@ -59,6 +56,7 @@ john_register_one(&fmt_luks);
 #include "base64_convert.h"
 #include "pbkdf2_hmac_sha1.h"
 #include "dyna_salt.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define LUKS_MAGIC_L        6
@@ -284,15 +282,9 @@ static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
 	static int warned = 0;
-//	extern struct fmt_main fmt_luks;
-#ifdef _OPENMP
-	int threads = omp_get_max_threads();
 
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+#ifdef _OPENMP
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	crypt_out = mem_calloc(sizeof(*crypt_out), self->params.max_keys_per_crypt);
@@ -321,6 +313,13 @@ static void init(struct fmt_main *self)
 //	printf("length=%d end=%s\n", strlen(fmt_luks.params.tests[0].ciphertext), &((fmt_luks.params.tests[0].ciphertext)[strlen(fmt_luks.params.tests[0].ciphertext)-30]));
 #ifdef _MSC_VER
 	LUKS_test_fixup();
+#endif
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
 #endif
 }
 
@@ -655,7 +654,7 @@ struct fmt_main fmt_luks = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

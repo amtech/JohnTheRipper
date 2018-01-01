@@ -23,6 +23,10 @@ john_register_one(&fmt_keystore);
 
 #include <string.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "simd-intrinsics.h"
 #include "sha.h"
@@ -34,20 +38,8 @@ john_register_one(&fmt_keystore);
 #include "dyna_salt.h"
 #include "johnswap.h"
 #include "keystore_common.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
-
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#if SIMD_COEF_32
-#define OMP_SCALE               1024
-#else
-#define OMP_SCALE               64
-#endif
-#endif
-#elif SIMD_COEF_32
-#define OMP_SCALE               128
-#endif
 
 #ifdef SIMD_COEF_32
 #define NBKEYS                  (SIMD_COEF_32 * SIMD_PARA_SHA1)
@@ -146,15 +138,7 @@ inline static void getPreKeyedHash(int idx)
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
-#elif SIMD_COEF_32
-	self->params.max_keys_per_crypt *= OMP_SCALE;
+	omp_autotune(self, NULL);
 #endif
 	// We need 1 more saved_key than is 'used'. This extra key is used
 	// in SIMD code, for all part full grouped blocks.
@@ -164,6 +148,13 @@ static void init(struct fmt_main *self)
 	saved_ctx = mem_calloc(sizeof(*saved_ctx), self->params.max_keys_per_crypt);
 	MixOrderLen = self->params.max_keys_per_crypt*MAX_KEYS_PER_CRYPT+MAX_KEYS_PER_CRYPT;
 	MixOrder = mem_calloc(MixOrderLen, sizeof(int));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -514,7 +505,7 @@ struct fmt_main fmt_keystore = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		keystore_common_valid_cpu,
 		fmt_default_split,

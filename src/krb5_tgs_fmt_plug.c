@@ -25,6 +25,7 @@ john_register_one(&fmt_krb5tgs);
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -37,11 +38,8 @@ john_register_one(&fmt_krb5tgs);
 #include "hmacmd5.h"
 #include "rc4.h"
 #include "unicode.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
-
-#ifndef OMP_SCALE
-#define OMP_SCALE            256
-#endif
 
 #define FORMAT_LABEL         "krb5tgs"
 #define FORMAT_NAME          "Kerberos 5 TGS etype 23"
@@ -170,13 +168,7 @@ err:
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_alloc_align(sizeof(*saved_key) *
 			self->params.max_keys_per_crypt,
@@ -187,6 +179,13 @@ static void init(struct fmt_main *self)
 	any_cracked = 0;
 	cracked_size = sizeof(*cracked) * self->params.max_keys_per_crypt;
 	cracked = mem_calloc(cracked_size, 1);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -402,7 +401,7 @@ struct fmt_main fmt_krb5tgs = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		split,

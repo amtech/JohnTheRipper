@@ -18,38 +18,28 @@ extern struct fmt_main fmt_sl3;
 john_register_one(&fmt_sl3);
 #else
 
-#include "arch.h"
-//#undef SIMD_COEF_32
-//#undef SIMD_PARA_SHA1
-//#undef _OPENMP
-
 #include <string.h>
+
 #ifdef _OPENMP
-#ifdef SIMD_COEF_64
-#ifndef OMP_SCALE
-#define OMP_SCALE           1024
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE           2048
-#endif
-#endif
 #include <omp.h>
 #endif
 
+#include "arch.h"
 #include "misc.h"
 #include "formats.h"
 #include "options.h"
 #include "johnswap.h"
-#ifdef SIMD_COEF_32
-#define NBKEYS	(SIMD_COEF_32 * SIMD_PARA_SHA1)
-#endif
 #include "simd-intrinsics.h"
 #include "common.h"
 #include "sha.h"
 #include "sl3_common.h"
 #include "base64_convert.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
+
+#ifdef SIMD_COEF_32
+#define NBKEYS	(SIMD_COEF_32 * SIMD_PARA_SHA1)
+#endif
 
 #define FORMAT_LABEL        "SL3"
 #define ALGORITHM_NAME      "SHA1 " SHA1_ALGORITHM_NAME
@@ -81,13 +71,7 @@ static uint32_t (*crypt_key)[BINARY_SIZE / 4];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 #ifndef SIMD_COEF_32
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
@@ -101,6 +85,13 @@ static void init(struct fmt_main *self)
 	                             sizeof(*saved_key), MEM_ALIGN_SIMD);
 	crypt_key = mem_calloc_align(self->params.max_keys_per_crypt/NBKEYS,
 	                             sizeof(*crypt_key), MEM_ALIGN_SIMD);
+#endif
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
 #endif
 }
 
@@ -310,7 +301,7 @@ struct fmt_main fmt_sl3 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		sl3_prepare,
 		sl3_valid,
 		fmt_default_split,

@@ -22,9 +22,6 @@ john_register_one(&fmt_money);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               128
-#endif
 #endif
 
 #include "arch.h"
@@ -38,6 +35,7 @@ john_register_one(&fmt_money);
 #include "rc4.h"
 #include "jumbo.h"
 #include "unicode.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_NAME             "Microsoft Money (2002 to Money Plus)"
@@ -90,13 +88,7 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	orig_key = mem_calloc(sizeof(*orig_key), self->params.max_keys_per_crypt);
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
@@ -128,6 +120,13 @@ static void init(struct fmt_main *self)
 			test++;
 		}
 	}
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -316,7 +315,7 @@ struct fmt_main fmt_money = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

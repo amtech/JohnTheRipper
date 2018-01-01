@@ -9,8 +9,11 @@ extern struct fmt_main fmt_XSHA512;
 john_register_one(&fmt_XSHA512);
 #else
 
-#include "sha2.h"
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
+#include "sha2.h"
 #include "arch.h"
 #include "params.h"
 #include "common.h"
@@ -18,20 +21,7 @@ john_register_one(&fmt_XSHA512);
 #include "johnswap.h"
 #include "simd-intrinsics.h"
 #include "rawSHA512_common.h"
-
-#ifdef _OPENMP
-#include <omp.h>
-#ifdef SIMD_COEF_64
-#ifndef OMP_SCALE
-#define OMP_SCALE               4096
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE               8192
-#endif
-#endif
-#endif
-
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL			"xsha512"
@@ -82,19 +72,11 @@ static uint32_t saved_salt;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 #ifdef SIMD_COEF_64
-#ifndef _OPENMP
-	int threads = 1;
-#endif
-	saved_key = mem_calloc_align(threads, sizeof(*saved_key), MEM_ALIGN_SIMD);
+	saved_key = mem_calloc_align(self->params.max_keys_per_crypt,
+	                             sizeof(*saved_key), MEM_ALIGN_SIMD);
 	crypt_out = mem_calloc_align(self->params.max_keys_per_crypt,
 	                             8 * sizeof(uint64_t), MEM_ALIGN_SIMD);
 	max_keys = self->params.max_keys_per_crypt;
@@ -105,6 +87,13 @@ static void init(struct fmt_main *self)
 	                       sizeof(*saved_len));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*crypt_out));
+#endif
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
 #endif
 }
 
@@ -282,7 +271,7 @@ struct fmt_main fmt_XSHA512 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		sha512_common_prepare_xsha512,
 		sha512_common_valid_xsha512,
 		sha512_common_split_xsha512,

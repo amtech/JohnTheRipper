@@ -19,6 +19,12 @@ john_register_one(&fmt_NT2);
 #include <string.h>
 
 #include "arch.h"
+#if !FAST_FORMATS_OMP
+#undef _OPENMP
+#endif
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 
 /*
  * Only effective for SIMD.
@@ -39,6 +45,7 @@ john_register_one(&fmt_NT2);
 #include "memory.h"
 #include "johnswap.h"
 #include "simd-intrinsics.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL			"NT"
@@ -59,17 +66,7 @@ john_register_one(&fmt_NT2);
 #define SALT_SIZE			0
 #define SALT_ALIGN			1
 
-#if !FAST_FORMATS_OMP
-#undef _OPENMP
-#endif
-
 #ifdef SIMD_COEF_32
-#if defined(_OPENMP)
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE			512 // tuned for i7 w/o HT
-#endif
-#endif
 #define PLAINTEXT_LENGTH		27
 #define MIN_KEYS_PER_CRYPT		NBKEYS
 #define MAX_KEYS_PER_CRYPT		NBKEYS
@@ -173,13 +170,7 @@ static void init(struct fmt_main *self)
 	int i;
 #endif
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	if (options.target_enc == UTF_8) {
 		/* This avoids an if clause for every set_key */
@@ -221,6 +212,13 @@ static void init(struct fmt_main *self)
 	buf_ptr = mem_calloc(self->params.max_keys_per_crypt, sizeof(*buf_ptr));
 	for (i=0; i<self->params.max_keys_per_crypt; i++)
 		buf_ptr[i] = (unsigned int*)&saved_key[GETPOSW(0, i)];
+#endif
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
 #endif
 }
 
@@ -727,7 +725,7 @@ struct fmt_main fmt_NT2 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		prepare,
 		valid,
 		split,

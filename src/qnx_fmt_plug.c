@@ -25,20 +25,17 @@ john_register_one(&fmt_qnx);
 #define _GNU_SOURCE 1
 #include <string.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "params.h"
 #include "common.h"
 #include "formats.h"
 #include "johnswap.h"
 #include "simd-intrinsics.h"
 #include "misc.h"
-
-#ifdef _OPENMP
-#ifndef OMP_SCALE
-#define OMP_SCALE			8
-#endif
-#include <omp.h>
-#endif
-
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 // NOTE, in SSE mode, even if NOT in OMP, we may need to scale, quite a bit, due to needing
@@ -94,14 +91,13 @@ static struct qnx_saltstruct {
 
 static void init(struct fmt_main *self)
 {
-	int threads = 1;
+	int sc_threads = 1;
 	int max_crypts;
 
 #ifdef _OPENMP
-	threads = omp_get_max_threads();
-	threads *= OMP_SCALE;
+	sc_threads = omp_autotune(self, NULL);
 #endif
-	max_crypts = SIMD_COEF_SCALE * threads * MAX_KEYS_PER_CRYPT;
+	max_crypts = SIMD_COEF_SCALE * sc_threads * MAX_KEYS_PER_CRYPT;
 	self->params.max_keys_per_crypt = max_crypts;
 	// we allocate 1 more than needed, and use that 'extra' value as a zero
 	// length PW to fill in the tail groups in MMX mode.
@@ -109,8 +105,15 @@ static void init(struct fmt_main *self)
 	saved_key = mem_calloc(1 + max_crypts, sizeof(*saved_key));
 	crypt_out = mem_calloc(1 + max_crypts, sizeof(*crypt_out));
 #ifdef SIMD_COEF_32
-	for (threads = 1; threads <= PLAINTEXT_LENGTH; ++threads)
-		sk_by_len[threads] = mem_calloc(1+max_crypts, sizeof(int));
+	for (sc_threads = 1; sc_threads <= PLAINTEXT_LENGTH; ++sc_threads)
+		sk_by_len[sc_threads] = mem_calloc(1+max_crypts, sizeof(int));
+#endif
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
 #endif
 }
 
@@ -360,7 +363,7 @@ struct fmt_main fmt_qnx = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

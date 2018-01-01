@@ -15,37 +15,26 @@ john_register_one(&fmt_saltedsha);
 
 #include <string.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "misc.h"
 #include "formats.h"
 #include "arch.h"
 #include "options.h"
 #include "johnswap.h"
 #include "salted_sha1_common.h"
+#include "simd-intrinsics.h"
+#include "common.h"
+#include "sha.h"
+#include "base64_convert.h"
+#include "omp_autotune.h"
+#include "memdbg.h"
 
 #ifdef SIMD_COEF_32
 #define NBKEYS	(SIMD_COEF_32 * SIMD_PARA_SHA1)
 #endif
-#include "simd-intrinsics.h"
-
-#include "common.h"
-
-#include "sha.h"
-#include "base64_convert.h"
-
-#ifdef _OPENMP
-#ifdef SIMD_COEF_64
-#ifndef OMP_SCALE
-#define OMP_SCALE               1024
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE				2048
-#endif
-#endif
-#include <omp.h>
-#endif
-
-#include "memdbg.h"
 
 #define FORMAT_LABEL			"Salted-SHA1"
 #define FORMAT_NAME			""
@@ -97,13 +86,7 @@ static unsigned int *saved_len;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 #ifndef SIMD_COEF_32
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
@@ -118,6 +101,13 @@ static void init(struct fmt_main *self)
 #endif
 	saved_len = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_len));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -280,7 +270,7 @@ struct fmt_main fmt_saltedsha = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		salted_sha1_common_valid,
 		fmt_default_split,

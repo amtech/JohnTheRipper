@@ -58,6 +58,10 @@ john_register_one(&fmt_mscash2);
 
 #include <string.h>
 
+#if defined (_OPENMP)
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "memory.h"
@@ -71,14 +75,7 @@ john_register_one(&fmt_mscash2);
 #include "simd-intrinsics.h"
 #include "loader.h"
 #include "mscash_common.h"
-
-#if defined (_OPENMP)
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE			8	// Tuned on Corei7 Quad-HT
-#endif
-#endif
-
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define ITERATIONS			10240
@@ -124,14 +121,8 @@ static unsigned int (*crypt_out);
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-	if (threads < 1)
-		threads = 1;
-	self->params.min_keys_per_crypt *= threads;
-	threads *= OMP_SCALE;
-	self->params.max_keys_per_crypt *= threads;
+	omp_autotune(self, NULL);
 #endif
-
 	key = mem_calloc(self->params.max_keys_per_crypt,
 	                 (PLAINTEXT_LENGTH + 1));
 	md4hash = mem_calloc(self->params.max_keys_per_crypt,
@@ -161,6 +152,13 @@ static void init(struct fmt_main *self)
 #endif
 
 	mscash2_adjust_tests(options.target_enc, PLAINTEXT_LENGTH, MAX_SALT_LEN);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -621,7 +619,7 @@ struct fmt_main fmt_mscash2 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		mscash2_common_prepare,
 		valid,
 		mscash2_common_split,

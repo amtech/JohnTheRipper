@@ -24,13 +24,11 @@ john_register_one(&fmt_electrum);
 
 #include <string.h>
 #include <zlib.h>
+#include <openssl/bn.h>
+
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               4
 #endif
-#endif
-#include <openssl/bn.h>
 
 #include "arch.h"
 #include "misc.h"
@@ -44,6 +42,7 @@ john_register_one(&fmt_electrum);
 #include "secp256k1.h"
 #include "pbkdf2_hmac_sha512.h"
 #include "hmac_sha.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_NAME             "Electrum Wallet"
@@ -111,17 +110,18 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	cracked = mem_calloc(sizeof(*cracked), self->params.max_keys_per_crypt);
 	cracked_count = self->params.max_keys_per_crypt;
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -465,7 +465,7 @@ struct fmt_main fmt_electrum = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

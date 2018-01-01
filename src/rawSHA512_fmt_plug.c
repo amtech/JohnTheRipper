@@ -22,6 +22,10 @@ john_register_one(&fmt_raw0_SHA512);
 
 #include <stdint.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "sha2.h"
 #include "params.h"
@@ -29,29 +33,10 @@ john_register_one(&fmt_raw0_SHA512);
 #include "johnswap.h"
 #include "formats.h"
 #include "rawSHA512_common.h"
-
-//#undef SIMD_COEF_64
-//#undef SIMD_PARA_SHA512
-
-/*
- * Only effective for SIMD.
- * Undef to disable reversing steps for benchmarking.
- */
+/* Only effective for SIMD. */
 #define REVERSE_STEPS
-
-#ifdef _OPENMP
-#ifdef SIMD_COEF_64
-#ifndef OMP_SCALE
-#define OMP_SCALE               1024
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE				2048
-#endif
-#endif
-#include <omp.h>
-#endif
 #include "simd-intrinsics.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"Raw-SHA512"
@@ -97,13 +82,7 @@ static uint64_t (*crypt_out)[DIGEST_SIZE / sizeof(uint64_t)];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 #ifndef SIMD_COEF_64
 	saved_len = mem_calloc(self->params.max_keys_per_crypt,
@@ -117,6 +96,13 @@ static void init(struct fmt_main *self)
 	                             sizeof(*saved_key), MEM_ALIGN_SIMD);
 	crypt_out = mem_calloc_align(self->params.max_keys_per_crypt * 8,
 	                             sizeof(*crypt_out), MEM_ALIGN_SIMD);
+#endif
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
 #endif
 }
 
@@ -295,7 +281,7 @@ struct fmt_main fmt_raw0_SHA512 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		sha512_common_valid,
 		sha512_common_split,

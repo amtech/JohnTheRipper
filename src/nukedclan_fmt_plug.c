@@ -24,6 +24,10 @@ john_register_one(&fmt_nk);
 
 #include <string.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "md5.h"
 #include "sha.h"
@@ -33,20 +37,7 @@ john_register_one(&fmt_nk);
 #include "params.h"
 #include "options.h"
 #include "common.h"
-
-#ifdef _OPENMP
-#include <omp.h>
-// Tuned on core i7 quad HT
-//   1  5059K
-//  16  8507k
-//  64  8907k   ** this was chosen.
-// 128  8914k
-// 256  8810k
-#ifndef OMP_SCALE
-#define OMP_SCALE    64
-#endif
-#endif
-
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"nk"
@@ -97,16 +88,17 @@ inline static void hex_encode(unsigned char *str, int len, unsigned char *out)
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	crypt_out = mem_calloc(sizeof(*crypt_out), self->params.max_keys_per_crypt);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -292,7 +284,7 @@ struct fmt_main fmt_nk = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		split,

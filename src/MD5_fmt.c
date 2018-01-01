@@ -12,6 +12,10 @@
 
 #include <string.h>
 
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "simd-intrinsics.h"
@@ -19,13 +23,7 @@
 #include "common.h"
 #include "formats.h"
 #include "md5crypt_common.h"
-
-#if defined(_OPENMP) && defined(SIMD_PARA_MD5)
-#ifndef OMP_SCALE
-#define OMP_SCALE			4
-#endif
-#include <omp.h>
-#endif
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL			"md5crypt"
@@ -130,12 +128,7 @@ static void init(struct fmt_main *self)
 {
 	MD5_std_init(self);
 #if defined(_OPENMP) && defined(SIMD_PARA_MD5)
-	omp_para = omp_get_max_threads();
-	if (omp_para < 1)
-		omp_para = 1;
-	self->params.min_keys_per_crypt = MD5_N * omp_para;
-	omp_para *= OMP_SCALE;
-	self->params.max_keys_per_crypt = MD5_N * omp_para;
+	omp_para = omp_autotune(self, NULL);
 #elif MD5_std_mt
 	self->params.min_keys_per_crypt = MD5_std_min_kpc;
 	self->params.max_keys_per_crypt = MD5_std_max_kpc;
@@ -146,6 +139,13 @@ static void init(struct fmt_main *self)
 #ifdef SIMD_PARA_MD5
 	sout = mem_calloc(self->params.max_keys_per_crypt,
 	                  sizeof(*sout) * BINARY_SIZE);
+#endif
+}
+
+static void reset(struct db_main *db)
+{
+#if defined(_OPENMP) && defined(SIMD_PARA_MD5)
+	omp_autotune(NULL, db);
 #endif
 }
 
@@ -411,7 +411,7 @@ struct fmt_main fmt_MD5 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		cryptmd5_common_valid,
 		fmt_default_split,

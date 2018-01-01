@@ -15,19 +15,17 @@ john_register_one(&fmt_pbkdf2_hmac_md5);
 #include <string.h>
 #include <stdint.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "common.h"
 #include "formats.h"
 #include "pbkdf2_hmac_md5.h"
 #include "pbkdf2_hmac_common.h"
-
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               256
-#endif
-#endif
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "PBKDF2-HMAC-MD5"
@@ -59,16 +57,17 @@ static uint32_t (*crypt_out)[PBKDF2_MDx_BINARY_SIZE / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt, sizeof(*saved_key));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt, sizeof(*crypt_out));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -210,7 +209,7 @@ struct fmt_main fmt_pbkdf2_hmac_md5 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		pbkdf2_hmac_md5_valid,
 		pbkdf2_hmac_md5_split,

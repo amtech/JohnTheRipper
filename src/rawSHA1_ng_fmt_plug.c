@@ -65,6 +65,7 @@ john_register_one(&fmt_sha1_ng);
 #include "johnswap.h"
 #include "aligned.h"
 #include "rawSHA1_common.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define VWIDTH SIMD_COEF_32
@@ -72,15 +73,6 @@ john_register_one(&fmt_sha1_ng);
 #define SHA1_BLOCK_WORDS        16
 #define SHA1_DIGEST_WORDS        5
 #define SHA1_PARALLEL_HASH     512 // This must be a multiple of max VWIDTH.
-#ifdef __MIC__
-#ifndef OMP_SCALE
-#define OMP_SCALE              128
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE             2048 // Multiplier to hide OMP overhead
-#endif
-#endif
 
 #define X(X0, X2, X8, X13) do {                 \
         X0  = vxor(X0, X8);                     \
@@ -211,13 +203,7 @@ inline static uint32_t __attribute__((const)) bswap32(uint32_t value)
 static void sha1_fmt_init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 
 	M   = mem_calloc_align(self->params.max_keys_per_crypt, sizeof(*M),
@@ -228,6 +214,13 @@ static void sha1_fmt_init(struct fmt_main *self)
 	                       MEM_ALIGN_CACHE);
 }
 
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
+}
 
 static void done(void)
 {
@@ -830,7 +823,7 @@ struct fmt_main fmt_sha1_ng = {
 	.methods                = {
 		.init               = sha1_fmt_init,
 		.done               = done,
-		.reset              = fmt_default_reset,
+		.reset              = reset,
 		.prepare            = rawsha1_common_prepare,
 		.valid              = rawsha1_common_valid,
 		.split              = rawsha1_common_split,

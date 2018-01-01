@@ -25,9 +25,6 @@ john_register_one(&fmt_DPAPImk);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               4
-#endif
 #endif
 
 #include "arch.h"
@@ -42,6 +39,7 @@ john_register_one(&fmt_DPAPImk);
 #include "sha.h"
 #include "md4.h"
 #include "hmac_sha.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define DPAPI_CRAP_LOGIC
@@ -118,18 +116,19 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
 	cracked   = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*cracked));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -463,7 +462,7 @@ struct fmt_main fmt_DPAPImk = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

@@ -19,9 +19,6 @@ john_register_one(&fmt_enpass);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               4 // this is a slow format, so 4 should be enough
-#endif
 #endif
 
 #include "aes.h"
@@ -34,6 +31,7 @@ john_register_one(&fmt_enpass);
 #include "johnswap.h"
 #include "enpass_common.h"
 #include "pbkdf2_hmac_sha1.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL         "enpass"
@@ -76,16 +74,17 @@ static struct custom_salt *cur_salt;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	cracked = mem_calloc(sizeof(*cracked), self->params.max_keys_per_crypt);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -203,7 +202,7 @@ struct fmt_main fmt_enpass = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		enpass_common_valid,
 		fmt_default_split,

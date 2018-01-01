@@ -36,6 +36,10 @@ john_register_one(&fmt_phpassmd5);
 
 #include <string.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "common.h"
@@ -43,17 +47,8 @@ john_register_one(&fmt_phpassmd5);
 #include "formats.h"
 #include "md5.h"
 #include "phpass_common.h"
-
-//#undef _OPENMP
-//#undef SIMD_COEF_32
-//#undef SIMD_PARA_MD5
-
-#ifdef _OPENMP
-#define OMP_SCALE               32
-#include <omp.h>
-#endif
-
 #include "simd-intrinsics.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL			"phpass"
@@ -105,13 +100,7 @@ static unsigned loopCnt;
 
 static void init(struct fmt_main *self) {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 #ifdef SIMD_COEF_32
 	crypt_key = mem_calloc_align(self->params.max_keys_per_crypt/NBKEYS,
@@ -128,6 +117,13 @@ static void init(struct fmt_main *self) {
 	                       sizeof(*crypt_key));
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
+#endif
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
 #endif
 }
 
@@ -363,7 +359,7 @@ struct fmt_main fmt_phpassmd5 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		phpass_common_prepare,
 		phpass_common_valid,
 		phpass_common_split,

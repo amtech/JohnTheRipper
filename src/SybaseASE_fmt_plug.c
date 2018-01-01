@@ -33,13 +33,11 @@ extern struct fmt_main fmt_SybaseASE;
 john_register_one(&fmt_SybaseASE);
 #else
 
-#include "arch.h"
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
-//#undef _OPENMP
-//#undef SIMD_COEF_32
-//#undef SIMD_PARA_SHA256
-//
-//#define FORCE_GENERIC_SHA2 2
+#include "arch.h"
 #include "sha2.h"
 #include "params.h"
 #include "common.h"
@@ -48,9 +46,7 @@ john_register_one(&fmt_SybaseASE);
 #include "unicode.h"
 #include "johnswap.h"
 #include "simd-intrinsics.h"
-#ifdef _OPENMP
-#include <omp.h>
-#endif
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL        "SybaseASE"
@@ -74,21 +70,9 @@ john_register_one(&fmt_SybaseASE);
 #ifdef SIMD_COEF_32
 #define MIN_KEYS_PER_CRYPT  (SIMD_COEF_32*SIMD_PARA_SHA256)
 #define MAX_KEYS_PER_CRYPT	(SIMD_COEF_32*SIMD_PARA_SHA256)
-#ifdef __MIC__
-#ifndef OMP_SCALE
-#define OMP_SCALE           64
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE           512
-#endif
-#endif // __MIC__
 #else
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT  1
-#ifndef OMP_SCALE
-#define OMP_SCALE           256
-#endif
 #endif
 
 static struct fmt_tests SybaseASE_tests[] = {
@@ -113,17 +97,11 @@ static int kpc, dirty;
 extern struct fmt_main fmt_SybaseASE;
 static void init(struct fmt_main *self)
 {
-#if _OPENMP || SIMD_COEF_32
+#if SIMD_COEF_32
 	int i;
 #endif
 #ifdef _OPENMP
-	i = omp_get_max_threads();
-
-	if (i > 1) {
-		self->params.min_keys_per_crypt *= i;
-		i *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= i;
-	}
+	omp_autotune(self, NULL);
 #endif
 	kpc = self->params.max_keys_per_crypt;
 
@@ -155,6 +133,13 @@ static void init(struct fmt_main *self)
 #else
 	prep_ctx = mem_calloc(sizeof(*prep_key),
 	                      self->params.max_keys_per_crypt);
+#endif
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
 #endif
 }
 
@@ -403,7 +388,7 @@ struct fmt_main fmt_SybaseASE = {
     }, {
         init,
         done,
-        fmt_default_reset,
+        reset,
         fmt_default_prepare,
         valid,
         split,

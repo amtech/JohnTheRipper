@@ -46,6 +46,7 @@ john_register_one(&fmt_NETNTLMv2);
 
 #include <stdint.h>
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -59,6 +60,7 @@ john_register_one(&fmt_NETNTLMv2);
 #include "hmacmd5.h"
 #include "unicode.h"
 #include "byteorder.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #ifndef uchar
@@ -87,9 +89,6 @@ john_register_one(&fmt_NETNTLMv2);
 // these may be altered in init() if running OMP
 #define MIN_KEYS_PER_CRYPT	1
 #define MAX_KEYS_PER_CRYPT	1
-#ifndef OMP_SCALE
-#define OMP_SCALE		3072
-#endif
 
 static struct fmt_tests tests[] = {
   {"", "password",                  {"USER1",                 "", "Domain",        "1122334455667788","5E4AB1BF243DCA304A00ADEF78DC38DF","0101000000000000BB50305495AACA01338BC7B090A62856000000000200120057004F0052004B00470052004F00550050000000000000000000"} },
@@ -120,13 +119,7 @@ static int keys_prepared;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_plain = mem_calloc(self->params.max_keys_per_crypt,
 	                         sizeof(*saved_plain));
@@ -135,6 +128,13 @@ static void init(struct fmt_main *self)
 	output = mem_calloc(self->params.max_keys_per_crypt, sizeof(*output));
 	saved_ctx = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_ctx));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -488,7 +488,7 @@ struct fmt_main fmt_NETNTLMv2 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		prepare,
 		valid,
 		split,

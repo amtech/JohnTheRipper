@@ -15,9 +15,6 @@ john_register_one(&fmt_office);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE                4
-#endif
 #endif
 
 #include "arch.h"
@@ -33,6 +30,7 @@ john_register_one(&fmt_office);
 #include "johnswap.h"
 #include "office_common.h"
 #include "simd-intrinsics.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL             "Office"
@@ -586,13 +584,7 @@ static void GenerateAgileEncryptionKey512(int idx, unsigned char hashBuf[SHA512_
 static void init(struct fmt_main *self)
 {
 #if defined (_OPENMP)
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	saved_len = mem_calloc(sizeof(*saved_len), self->params.max_keys_per_crypt);
@@ -600,6 +592,13 @@ static void init(struct fmt_main *self)
 	cracked = mem_calloc(sizeof(*cracked), self->params.max_keys_per_crypt);
 	if (options.target_enc == UTF_8)
 		self->params.plaintext_length = MIN(125, PLAINTEXT_LENGTH * 3);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -799,7 +798,7 @@ struct fmt_main fmt_office = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		ms_office_common_valid,
 		fmt_default_split,

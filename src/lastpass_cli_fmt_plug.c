@@ -15,11 +15,9 @@ john_register_one(&fmt_lastpass_cli);
 #else
 
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE              1
-#endif
 #endif
 
 #include "arch.h"
@@ -33,6 +31,7 @@ john_register_one(&fmt_lastpass_cli);
 #include "sha2.h"
 #include "pbkdf2_hmac_sha256.h"
 #include "lastpass_cli_common.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "lpcli"
@@ -66,16 +65,17 @@ static struct custom_salt *cur_salt;
 static void init(struct fmt_main *self)
 {
 #if defined (_OPENMP)
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	crypt_out = mem_calloc(sizeof(*crypt_out), self->params.max_keys_per_crypt);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -199,7 +199,7 @@ struct fmt_main fmt_lastpass_cli = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		lastpass_cli_common_valid,
 		fmt_default_split,

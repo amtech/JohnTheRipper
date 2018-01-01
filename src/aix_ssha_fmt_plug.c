@@ -27,9 +27,6 @@ john_register_one(&fmt_aixssha512);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               8 // Tuned on i7 w/HT for SHA-256
-#endif
 #endif
 
 #include "arch.h"
@@ -41,6 +38,7 @@ john_register_one(&fmt_aixssha512);
 #include "pbkdf2_hmac_sha1.h"
 #include "pbkdf2_hmac_sha256.h"
 #include "pbkdf2_hmac_sha512.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL_SHA1       "aix-ssha1"
@@ -125,13 +123,7 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc_align(sizeof(*saved_key),
 			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
@@ -139,11 +131,19 @@ static void init(struct fmt_main *self)
 			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 }
 
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
+}
+
 static void done(void)
 {
 	MEM_FREE(crypt_out);
 	MEM_FREE(saved_key);
 }
+
 static inline int valid_common(char *ciphertext, struct fmt_main *self, int b64len, char *sig, int siglen)
 {
 	char *p = ciphertext;
@@ -179,9 +179,11 @@ static inline int valid_common(char *ciphertext, struct fmt_main *self, int b64l
 static int valid_sha1(char *ciphertext, struct fmt_main *self) {
 	return valid_common(ciphertext, self, 27, FORMAT_TAG1, FORMAT_TAG1_LEN);
 }
+
 static int valid_sha256(char *ciphertext, struct fmt_main *self) {
 	return valid_common(ciphertext, self, 43, FORMAT_TAG256, FORMAT_TAG256_LEN);
 }
+
 static int valid_sha512(char *ciphertext, struct fmt_main *self) {
 	return valid_common(ciphertext, self, 86, FORMAT_TAG512, FORMAT_TAG512_LEN);
 }
@@ -434,7 +436,7 @@ struct fmt_main fmt_aixssha1 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid_sha1,
 		fmt_default_split,
@@ -499,7 +501,7 @@ struct fmt_main fmt_aixssha256 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid_sha256,
 		fmt_default_split,
@@ -564,7 +566,7 @@ struct fmt_main fmt_aixssha512 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid_sha512,
 		fmt_default_split,

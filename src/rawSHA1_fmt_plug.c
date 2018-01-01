@@ -18,6 +18,12 @@ john_register_one(&fmt_rawSHA1_axcrypt);
 #include <string.h>
 
 #include "arch.h"
+#if !FAST_FORMATS_OMP
+#undef _OPENMP
+#endif
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "sha.h"
 #include "common.h"
@@ -25,33 +31,10 @@ john_register_one(&fmt_rawSHA1_axcrypt);
 #include "base64_convert.h"
 #include "rawSHA1_common.h"
 #include "johnswap.h"
-
-#if !FAST_FORMATS_OMP
-#undef _OPENMP
-#endif
-
-//#undef SIMD_COEF_32
-//#undef SIMD_PARA_SHA1
-
-/*
- * Only effective for SIMD.
- * Undef to disable reversing steps for benchmarking.
- */
+ /* Only effective for SIMD. */
 #define REVERSE_STEPS
-
-#ifdef _OPENMP
-#ifdef SIMD_COEF_32
-#ifndef OMP_SCALE
-#define OMP_SCALE               1024
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE				2048
-#endif
-#endif
-#include <omp.h>
-#endif
 #include "simd-intrinsics.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define AX_FORMAT			1
@@ -100,15 +83,7 @@ static unsigned SSEi_flags;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads;
-
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 #ifdef SIMD_COEF_32
 	saved_key = mem_calloc_align(self->params.max_keys_per_crypt/NBKEYS,
@@ -149,6 +124,13 @@ static void init_ax(struct fmt_main *self)
     SSEi_flags = SSEi_REVERSE_3STEPS | SSEi_MIXED_IN;
 
     init(self);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -352,7 +334,7 @@ struct fmt_main fmt_rawSHA1 = {
 	}, {
 		init_raw,
 		done,
-		fmt_default_reset,
+		reset,
 		rawsha1_common_prepare,
 		rawsha1_common_valid,
 		rawsha1_common_split,
@@ -416,7 +398,7 @@ struct fmt_main fmt_rawSHA1_axcrypt = {
 	}, {
 		init_ax,
 		done,
-		fmt_default_reset,
+		reset,
 		rawsha1_common_prepare,
 		rawsha1_axcrypt_valid,
 		rawsha1_axcrypt_split,

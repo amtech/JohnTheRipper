@@ -62,11 +62,9 @@ john_register_one(&fmt_krb5asrep);
 
 #include <stdio.h>
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE                4
-#endif
 #endif
 
 #include "misc.h"
@@ -80,6 +78,7 @@ john_register_one(&fmt_krb5asrep);
 #include "unicode.h"
 #include "krb5_common.h"
 #include "krb5_asrep_common.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "krb5asrep"
@@ -151,14 +150,9 @@ static int valid(char *ciphertext, struct fmt_main *self)
 static void init(struct fmt_main *self)
 {
 	unsigned char usage[5];
-#ifdef _OPENMP
-	int threads = omp_get_max_threads();
 
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+#ifdef _OPENMP
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_alloc_align(sizeof(*saved_key) *
 			self->params.max_keys_per_crypt,
@@ -188,6 +182,13 @@ static void init(struct fmt_main *self)
 	usage[3] = 0x03;        // key number in big-endian format
 	usage[4] = 0x55;        // used to derive Ki
 	nfold(sizeof(usage) * 8, usage, sizeof(ki_input) * 8, ki_input);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -376,7 +377,7 @@ struct fmt_main fmt_krb5asrep = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		krb5_asrep_split,

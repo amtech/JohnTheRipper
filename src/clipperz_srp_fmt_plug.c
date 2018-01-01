@@ -55,17 +55,15 @@ extern struct fmt_main fmt_clipperz;
 john_register_one(&fmt_clipperz);
 #else
 
-#if AC_BUILT
-/* need to know if HAVE_LIBGMP is set, for autoconfig build */
-#include "autoconfig.h"
+#include <string.h>
+
+#ifdef _OPENMP
+#include <omp.h>
 #endif
 
-#include <string.h>
-#include "sha2.h"
-#include "arch.h"
-#include "params.h"
-#include "common.h"
-#include "formats.h"
+#if AC_BUILT /* need to know if HAVE_LIBGMP is set, for autoconfig build */
+#include "autoconfig.h"
+#endif
 #ifdef HAVE_LIBGMP
 #if HAVE_GMP_GMP_H
 #include <gmp/gmp.h>
@@ -77,15 +75,15 @@ john_register_one(&fmt_clipperz);
 #include <openssl/bn.h>
 #define EXP_STR " oSSL-exp"
 #endif
-#include "johnswap.h"
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               64
-#endif
-#endif
-#include "memdbg.h"
 
+#include "sha2.h"
+#include "arch.h"
+#include "params.h"
+#include "common.h"
+#include "formats.h"
+#include "johnswap.h"
+#include "omp_autotune.h"
+#include "memdbg.h"
 
 #define FORMAT_LABEL		"Clipperz"
 #define FORMAT_NAME		"SRP"
@@ -148,13 +146,7 @@ static void init(struct fmt_main *self)
 {
 	int i;
 #if defined (_OPENMP)
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc_align(sizeof(*saved_key),
 			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
@@ -182,6 +174,13 @@ static void init(struct fmt_main *self)
 		pSRP_CTX[i].BN_ctx = BN_CTX_new();
 #endif
 	}
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 void done(void)
@@ -479,7 +478,7 @@ struct fmt_main fmt_clipperz = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		split,

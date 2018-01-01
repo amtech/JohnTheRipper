@@ -46,6 +46,10 @@ john_register_one(&fmt_truecrypt_sha512);
 john_register_one(&fmt_truecrypt_whirlpool);
 #else
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "xts.h"
 #include "misc.h"
 #include "memory.h"
@@ -57,16 +61,7 @@ john_register_one(&fmt_truecrypt_whirlpool);
 #include "pbkdf2_hmac_sha512.h"
 #include "pbkdf2_hmac_ripemd160.h"
 #include "pbkdf2_hmac_whirlpool.h"
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#ifdef __MIC__
-#define OMP_SCALE               4
-#else
-#define OMP_SCALE               1
-#endif // __MIC__
-#endif // OMP_SCALE
-#endif // _OPENMP
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 /* 64 is the actual maximum used by Truecrypt software as of version 7.1a */
@@ -168,13 +163,7 @@ static struct fmt_tests tests_all[] = {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	key_buffer = mem_calloc(self->params.max_keys_per_crypt,
 			sizeof(*key_buffer));
@@ -187,6 +176,13 @@ static void init(struct fmt_main *self)
 	cracked = mem_calloc(sizeof(*cracked),
 			self->params.max_keys_per_crypt);
 	Twofish_initialise();
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -635,7 +631,7 @@ struct fmt_main fmt_truecrypt = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid_truecrypt,
 		fmt_default_split,
@@ -686,7 +682,7 @@ struct fmt_main fmt_truecrypt_ripemd160 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid_ripemd160,
 		fmt_default_split,
@@ -735,7 +731,7 @@ struct fmt_main fmt_truecrypt_ripemd160boot = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid_ripemd160boot,
 		fmt_default_split,
@@ -797,7 +793,7 @@ struct fmt_main fmt_truecrypt_sha512 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid_sha512,
 		fmt_default_split,
@@ -850,7 +846,7 @@ struct fmt_main fmt_truecrypt_whirlpool = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid_whirlpool,
 		fmt_default_split,

@@ -20,15 +20,6 @@ john_register_one(&fmt_sip);
 
 #ifdef _OPENMP
 #include <omp.h>
-// Tuned on core i7 quad HT
-//   1   4963K
-//  16   8486K
-//  32   8730K  ** this was chosen.
-//  64   8791k
-// 128   8908k
-#ifndef OMP_SCALE
-#define OMP_SCALE   32
-#endif
 #endif
 
 #include "arch.h"
@@ -40,6 +31,7 @@ john_register_one(&fmt_sip);
 #include "params.h"
 #include "options.h"
 #include "sip_fmt_plug.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 typedef struct sip_salt_t {
@@ -83,13 +75,7 @@ static char bin2hex_table[256][2]; /* table for bin<->hex mapping */
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	/* Init bin 2 hex table for faster conversions later */
 	init_bin2hex(bin2hex_table);
@@ -97,6 +83,13 @@ static void init(struct fmt_main *self)
 	                       sizeof(*saved_key));
 	crypt_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*crypt_key));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -381,7 +374,7 @@ struct fmt_main fmt_sip = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

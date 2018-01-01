@@ -15,11 +15,9 @@ john_register_one(&fmt_padlock);
 #else
 
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               4
-#endif
 #endif
 
 #include "arch.h"
@@ -34,6 +32,7 @@ john_register_one(&fmt_padlock);
 #include "aes_ccm.h"
 #include "pbkdf2_hmac_sha256.h"
 #include "jumbo.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "Padlock"
@@ -95,18 +94,19 @@ static int *cracked, cracked_count;
 static void init(struct fmt_main *self)
 {
 #if defined (_OPENMP)
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	saved_len = mem_calloc(self->params.max_keys_per_crypt, sizeof(*saved_len));
 	cracked = mem_calloc(sizeof(*cracked), self->params.max_keys_per_crypt);
 	cracked_count = self->params.max_keys_per_crypt;
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -358,7 +358,7 @@ struct fmt_main fmt_padlock = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

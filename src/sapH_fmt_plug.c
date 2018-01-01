@@ -26,16 +26,11 @@ john_register_one(&fmt_sapH);
 #include <string.h>
 #include <ctype.h>
 
-#include "arch.h"
-/* for now, undef this until I get OMP working, then start on SIMD */
-//#undef _OPENMP
-//#undef SIMD_COEF_32
-//#undef SIMD_PARA_SHA1
-//#undef SIMD_COEF_32
-//#undef SIMD_PARA_SHA256
-//#undef SIMD_COEF_64
-//#undef SIMD_PARA_SHA512
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 
+#include "arch.h"
 #include "misc.h"
 #include "common.h"
 #include "formats.h"
@@ -43,19 +38,9 @@ john_register_one(&fmt_sapH);
 #include "sha.h"
 #include "sha2.h"
 #include "johnswap.h"
-
-#if defined(_OPENMP)
-#include <omp.h>
-#ifdef SIMD_COEF_32
-#ifndef OMP_SCALE
-#define OMP_SCALE			8
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE			64
-#endif
-#endif
-#endif
+#include "simd-intrinsics.h"
+#include "omp_autotune.h"
+#include "memdbg.h"
 
 /*
  * Assumption is made that SIMD_COEF_32*SIMD_PARA_SHA1 is >= than
@@ -85,8 +70,6 @@ john_register_one(&fmt_sapH);
 // the least common multiple of the NBKEYS* above
 #define NBKEYS (SIMD_COEF_32*SIMD_PARA_SHA1*SIMD_PARA_SHA256*SIMD_PARA_SHA512)
 
-#include "simd-intrinsics.h"
-
 #define FORMAT_LABEL            "saph"
 #define FORMAT_NAME             "SAP CODVN H (PWDSALTEDHASH)"
 #define FORMAT_TAG              "{x-issha, "
@@ -99,8 +82,6 @@ john_register_one(&fmt_sapH);
 #define FORMAT_TAG512_LEN       (sizeof(FORMAT_TAG512)-1)
 
 #define ALGORITHM_NAME          "SHA-1/SHA-2 " SHA1_ALGORITHM_NAME
-
-#include "memdbg.h"
 
 #define BENCHMARK_COMMENT		" (SHA1x1024)"
 #define BENCHMARK_LENGTH		0
@@ -165,18 +146,19 @@ static struct sapH_salt {
 static void init(struct fmt_main *self)
 {
 #if defined (_OPENMP)
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_plain = mem_calloc(self->params.max_keys_per_crypt,
 	                         sizeof(*saved_plain));
 	crypt_key   = mem_calloc(self->params.max_keys_per_crypt,
 	                         sizeof(*crypt_key));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -763,7 +745,7 @@ struct fmt_main fmt_sapH = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		split,

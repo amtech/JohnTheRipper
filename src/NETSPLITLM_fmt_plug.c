@@ -21,16 +21,9 @@ john_register_one(&fmt_NETHALFLM);
 #else
 
 #include <string.h>
+#include <openssl/des.h>
+
 #ifdef _OPENMP
-#ifdef __MIC__
-#ifndef OMP_SCALE
-#define OMP_SCALE	2048
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE	65536
-#endif
-#endif // __MIC__
 #include <omp.h>
 #endif
 
@@ -38,8 +31,7 @@ john_register_one(&fmt_NETHALFLM);
 #include "common.h"
 #include "formats.h"
 #include "unicode.h"
-
-#include <openssl/des.h>
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #ifndef uchar
@@ -87,13 +79,7 @@ static uchar *challenge;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_plain = mem_calloc(self->params.max_keys_per_crypt,
 	                         sizeof(*saved_plain));
@@ -101,6 +87,13 @@ static void init(struct fmt_main *self)
 	                       sizeof(*saved_pre));
 	output = mem_calloc(self->params.max_keys_per_crypt,
 	                    sizeof(*output));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -317,7 +310,7 @@ struct fmt_main fmt_NETHALFLM = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		prepare,
 		valid,
 		split,

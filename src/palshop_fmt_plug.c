@@ -14,6 +14,10 @@ extern struct fmt_main fmt_palshop;
 john_register_one(&fmt_palshop);
 #else
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "sha.h"
 #include "md5.h"
@@ -24,12 +28,7 @@ john_register_one(&fmt_palshop);
 #include "params.h"
 #include "options.h"
 #include "base64_convert.h"
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               1024
-#endif
-#endif
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "Palshop"
@@ -64,13 +63,7 @@ static size_t *saved_len;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 			sizeof(*saved_key));
@@ -78,6 +71,13 @@ static void init(struct fmt_main *self)
 			sizeof(*crypt_out));
 	saved_len = mem_calloc(self->params.max_keys_per_crypt,
 			sizeof(*saved_len));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -247,7 +247,7 @@ struct fmt_main fmt_palshop = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		split,

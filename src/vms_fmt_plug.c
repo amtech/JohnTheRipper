@@ -29,17 +29,16 @@ john_register_one(&fmt_VMS);
 
 #include <stdio.h>
 #include <string.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "vms_std.h"
 #include "common.h"
 #include "formats.h"
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               1024 // Tuned on K8-Dual HT
-#endif
-#endif
 #ifdef VMS
 #include <ssdef.h>
 #define UAIsM_PWDMIX UAI$M_PWDMIX
@@ -49,6 +48,7 @@ john_register_one(&fmt_VMS);
  */
 #define UAIsM_PWDMIX 0x2000000
 #endif
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL			"OpenVMS"
@@ -123,13 +123,7 @@ static int valid(char *ciphertext, struct fmt_main *self )
 static void fmt_vms_init ( struct fmt_main *self )
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	/* Init bin 2 hex table for faster conversions later */
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
@@ -141,6 +135,13 @@ static void fmt_vms_init ( struct fmt_main *self )
 		uaf_init();
 		initialized = 1;
 	}
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -277,7 +278,7 @@ struct fmt_main fmt_VMS = {
 	}, {
 		fmt_vms_init,			/* changed for jumbo */
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

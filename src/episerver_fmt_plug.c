@@ -48,9 +48,6 @@ john_register_one(&fmt_episerver);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               2048 // core i7 no HT
-#endif
 #endif
 
 #include "sha.h"
@@ -63,6 +60,7 @@ john_register_one(&fmt_episerver);
 #include "options.h"
 #include "base64_convert.h"
 #include "unicode.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "EPiServer"
@@ -134,7 +132,7 @@ static struct custom_salt {
 } *cur_salt;
 
 #if defined(_OPENMP) || defined(SIMD_COEF_32)
-static int threads = 1;
+static int sc_threads = 1;
 #endif
 
 #ifdef SIMD_COEF_32
@@ -145,13 +143,7 @@ static void episerver_set_key_CP(char *_key, int index);
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	sc_threads = omp_autotune(self, NULL);
 #endif
 #ifdef SIMD_COEF_32
 	saved_key = mem_calloc_align(self->params.max_keys_per_crypt*SHA_BUF_SIZ,
@@ -176,6 +168,13 @@ static void init(struct fmt_main *self)
 #else
 	if (options.target_enc == UTF_8)
 		self->params.plaintext_length = PLAINTEXT_LENGTH * 3;
+#endif
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
 #endif
 }
 
@@ -298,7 +297,7 @@ static void set_salt(void *salt)
 #ifdef SIMD_COEF_32
 	int index, j;
 	cur_salt = (struct custom_salt *)salt;
-	for (index = 0; index < MAX_KEYS_PER_CRYPT*threads; ++index)
+	for (index = 0; index < MAX_KEYS_PER_CRYPT*sc_threads; ++index)
 		for (j = 0; j < EFFECTIVE_SALT_SIZE; ++j) // copy the salt to vector buffer
 			((unsigned char*)saved_key)[GETPOS(j, index)] = ((unsigned char*)cur_salt->esalt)[j];
 #else
@@ -655,7 +654,7 @@ struct fmt_main fmt_episerver = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

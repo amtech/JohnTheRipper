@@ -46,6 +46,7 @@ john_register_one(&fmt_NETLMv2);
 
 #include <stdint.h>
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -59,6 +60,7 @@ john_register_one(&fmt_NETLMv2);
 #include "md5.h"
 #include "hmacmd5.h"
 #include "byteorder.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL         "netlmv2"
@@ -82,9 +84,6 @@ john_register_one(&fmt_NETLMv2);
 // these may be altered in init() if running OMP
 #define MIN_KEYS_PER_CRYPT   1
 #define MAX_KEYS_PER_CRYPT   1
-#ifndef OMP_SCALE
-#define OMP_SCALE            1536
-#endif
 
 static struct fmt_tests tests[] = {
   {"", "1337adminPASS",         {"FOODOM\\Administrator", "", "",       "1122334455667788", "6F64C5C1E35F68DD80388C0F00F34406", "F0F3FF27037AA69F"} },
@@ -109,13 +108,7 @@ static unsigned char *challenge;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_plain = mem_calloc(self->params.max_keys_per_crypt,
 	                         sizeof(*saved_plain));
@@ -124,6 +117,13 @@ static void init(struct fmt_main *self)
 	output = mem_calloc(self->params.max_keys_per_crypt, sizeof(*output));
 	saved_ctx = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_ctx));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -418,7 +418,7 @@ struct fmt_main fmt_NETLMv2 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		prepare,
 		valid,
 		split,

@@ -36,31 +36,19 @@ john_register_one(&fmt_leet);
 #include "sph_whirlpool.h"
 #endif
 
-#include "sha2.h"
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "misc.h"
 #include "common.h"
 #include "formats.h"
 #include "params.h"
 #include "options.h"
+#include "sha2.h"
 #include "johnswap.h"
-
-//#undef SIMD_COEF_64
-//#undef SIMD_PARA_SHA512
-
-#ifdef _OPENMP
-#ifdef SIMD_COEF_64
-#ifndef OMP_SCALE
-#define OMP_SCALE               256
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE               128 // tuned on Core i7-6600U
-#endif
-#endif
-#include <omp.h>
-#endif
-
 #include "simd-intrinsics.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #ifdef SIMD_COEF_64
@@ -111,19 +99,21 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 	int keys;
-#ifdef _OPENMP
-	int threads = omp_get_max_threads();
 
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+#ifdef _OPENMP
+	omp_autotune(self, NULL);
 #endif
 	keys = self->params.max_keys_per_crypt;
 	saved_key = mem_calloc(sizeof(*saved_key), keys);
 	saved_len = mem_calloc(keys, sizeof(*saved_len));
 	crypt_out = mem_calloc_align(sizeof(*crypt_out), keys, sizeof(uint64_t));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -380,7 +370,7 @@ struct fmt_main fmt_leet = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		prepare,
 		valid,
 		fmt_default_split,

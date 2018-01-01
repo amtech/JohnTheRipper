@@ -16,24 +16,16 @@ extern struct fmt_main fmt_rawSHA256_ng;
 john_register_one(&fmt_rawSHA256_ng);
 #else
 
+#include <string.h>
+#include <stdint.h>
+
 #if !FAST_FORMATS_OMP
 #undef _OPENMP
 #endif
-
 #if _OPENMP
 #include <omp.h>
-#if __XOP__
-#ifndef OMP_SCALE
-#define OMP_SCALE                 512 /* AMD */
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE                 512 /* Intel */
-#endif
-#endif
 #endif
 
-#include "misc.h"
 #if !defined(DEBUG) && !defined(WITH_ASAN)
 // These compilers claim to be __GNUC__ but warn on gcc pragmas.
 #if __GNUC__ && !__INTEL_COMPILER && !__clang__ && !__llvm__ && !_MSC_VER
@@ -41,13 +33,12 @@ john_register_one(&fmt_rawSHA256_ng);
 #endif
 #endif
 
-#include <string.h>
-#include <stdint.h>
-
+#include "misc.h"
 #include "pseudo_intrinsics.h"
 #include "common.h"
 #include "formats.h"
 #include "aligned.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #if __MIC__
@@ -180,20 +171,22 @@ static uint32_t *crypt_key[ 8];
 static void init(struct fmt_main *self)
 {
     int i;
-#ifdef _OPENMP
-    int threads = omp_get_max_threads();
 
-    if (threads > 1) {
-            self->params.min_keys_per_crypt *= threads;
-            threads *= OMP_SCALE;
-            self->params.max_keys_per_crypt *= threads;
-    }
+#ifdef _OPENMP
+	omp_autotune(self, NULL);
 #endif
     saved_key = mem_calloc_align(self->params.max_keys_per_crypt,
                                  sizeof(*saved_key), VWIDTH * 4);
     for (i = 0; i < 8; i++)
             crypt_key[i] = mem_calloc_align(self->params.max_keys_per_crypt,
                                             sizeof(uint32_t), VWIDTH * 4);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -434,7 +427,7 @@ struct fmt_main fmt_rawSHA256_ng = {
     }, {
         init,
         done,
-        fmt_default_reset,
+        reset,
 	sha256_common_prepare,
 	sha256_common_valid,
 	sha256_common_split,

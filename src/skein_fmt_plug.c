@@ -19,6 +19,10 @@ john_register_one(&fmt_skein_512);
 
 #include <string.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "common.h"
@@ -26,26 +30,7 @@ john_register_one(&fmt_skein_512);
 #include "params.h"
 #include "options.h"
 #include "sph_skein.h"
-#ifdef _OPENMP
-#include <omp.h>
-// OMP_SCALE tuned on core i7 quad core HT
-//        256bt  512bt
-// 1   -  233k   232k
-// 64  - 5406k  5377k
-// 128 - 6730k  6568k
-// 256 - 7618k  7405k
-// 512 - 8243k  8000k
-// 1k  - 8610k  8408k  ** this level chosen
-// 2k  - 8804k  8610k
-// 4k  - 8688k  8648k
-#ifndef OMP_SCALE
-#ifdef __MIC__
-#define OMP_SCALE               64
-#else
-#define OMP_SCALE               1024
-#endif // __MIC__
-#endif // OMP_SCALE
-#endif // _OPENMP
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 // Skein-256 or Skein-512 are the real format labels.
@@ -94,16 +79,17 @@ static uint32_t (*crypt_out)[BINARY_SIZE512 / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	crypt_out = mem_calloc(sizeof(*crypt_out), self->params.max_keys_per_crypt);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -292,7 +278,7 @@ struct fmt_main fmt_skein_256 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid256,
 		split,
@@ -349,7 +335,7 @@ struct fmt_main fmt_skein_512 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid512,
 		split,

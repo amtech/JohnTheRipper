@@ -23,23 +23,6 @@ john_register_one(&fmt_hsrp);
 
 #ifdef _OPENMP
 #include <omp.h>
-// OMP_SCALE tuned on core i7 4-core HT
-// 2048 -  8850k 6679k
-// 4096 - 10642k 7278k
-// 8192 - 10489k 7532k
-// 16k  - 10413k 7694k
-// 32k  - 12111k 7803k  ** this value chosen
-// 64k  - 12420k 6523k
-// 128k - 12220k 6741k
-#ifdef __MIC__
-#ifndef OMP_SCALE
-#define OMP_SCALE 8192
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE 32768
-#endif
-#endif
 #endif
 
 #include "arch.h"
@@ -50,6 +33,7 @@ john_register_one(&fmt_hsrp);
 #include "johnswap.h"
 #include "params.h"
 #include "options.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "hsrp"
@@ -91,13 +75,7 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -107,6 +85,13 @@ static void init(struct fmt_main *self)
 	                       sizeof(*crypt_out));
 	saved_ctx = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_ctx));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -290,7 +275,7 @@ struct fmt_main fmt_hsrp = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

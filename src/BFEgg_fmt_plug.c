@@ -18,27 +18,13 @@ john_register_one(&fmt_BFEgg);
 
 #ifdef _OPENMP
 #include <omp.h>
-// Tuning on AMD A8 4500M laptop, cygwin64 with OMP(4x) -test=5
-// 4   = 44330 (original)
-// 16  = 54760
-// 24  = 56151
-// 32  = 56216
-// 64  = 57770
-// 96  = 57888
-// 128 = 58016  > instant -test=0
-// 256 = 58282  // from here on, not enough gain to matter.
-// 512 = 58573
-// 1024= 59464
-// 4096= 59244  > 1s -test=0
-#ifndef OMP_SCALE
-#define OMP_SCALE               128
-#endif
 #endif
 
 #include "misc.h"
 #include "formats.h"
 #include "common.h"
 #include "blowfish.c"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "bfegg"
@@ -95,13 +81,7 @@ void init(struct fmt_main *self) {
 	const char *pos;
 
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -111,6 +91,13 @@ void init(struct fmt_main *self) {
 	memset(_atoi64, 0x7F, sizeof(_atoi64));
 	for (pos = _itoa64; pos <= &_itoa64[63]; pos++)
 		_atoi64[ARCH_INDEX(*pos)] = pos - _itoa64;
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -221,7 +208,7 @@ struct fmt_main fmt_BFEgg = {
   }, {
     init,
     done,
-    fmt_default_reset,
+    reset,
     fmt_default_prepare,
     valid,
     fmt_default_split,

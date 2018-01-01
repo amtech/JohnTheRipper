@@ -20,16 +20,6 @@ john_register_one(&fmt_snefru_128);
 
 #ifdef _OPENMP
 #include <omp.h>
-// OMP_SCALE tuned on core i7 quad core HT
-//        128kb   256kb
-// 1   -  214k    215k
-// 64  - 1435k   1411k
-// 128 - 1474k   1902k *** this was chosen
-// 256 - 1508k   1511k
-// 512 - 1649k   1564k
-#ifndef OMP_SCALE
-#define OMP_SCALE  128
-#endif
 #endif
 
 #include "arch.h"
@@ -39,6 +29,7 @@ john_register_one(&fmt_snefru_128);
 #include "formats.h"
 #include "params.h"
 #include "options.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 // Snefru-128 and Snefru-256 are the real format labels
@@ -76,13 +67,7 @@ static uint32_t (*crypt_out)[BINARY_SIZE256 / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	if (!saved_key) {
 		saved_key = mem_calloc(self->params.max_keys_per_crypt,
@@ -90,6 +75,13 @@ static void init(struct fmt_main *self)
 		crypt_out = mem_calloc(self->params.max_keys_per_crypt,
 		                       sizeof(*crypt_out));
 	}
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -277,7 +269,7 @@ struct fmt_main fmt_snefru_256 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid256,
 		split,
@@ -334,7 +326,7 @@ struct fmt_main fmt_snefru_128 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid128,
 		split,

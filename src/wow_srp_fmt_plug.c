@@ -53,13 +53,17 @@ john_register_one(&fmt_blizzard);
 #endif
 
 #include <string.h>
-#include "sha.h"
-#include "sha2.h"
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "arch.h"
 #include "params.h"
 #include "common.h"
 #include "formats.h"
+#include "sha.h"
+#include "sha2.h"
 #include "unicode.h" /* For encoding-aware uppercasing */
 #ifdef HAVE_LIBGMP
 #if HAVE_GMP_GMP_H
@@ -73,14 +77,8 @@ john_register_one(&fmt_blizzard);
 #define EXP_STR " oSSL-exp"
 #endif
 #include "johnswap.h"
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               64
-#endif
-#endif
+#include "omp_autotune.h"
 #include "memdbg.h"
-
 
 #define FORMAT_LABEL		"WoWSRP"
 #define FORMAT_NAME		"Battlenet"
@@ -138,14 +136,9 @@ static int max_keys_per_crypt;
 static void init(struct fmt_main *self)
 {
 	int i;
-#if defined (_OPENMP)
-	int threads = omp_get_max_threads();
 
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+#if defined (_OPENMP)
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
@@ -174,6 +167,13 @@ static void init(struct fmt_main *self)
 		pSRP_CTX[i].BN_ctx = BN_CTX_new();
 #endif
 	}
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -538,7 +538,7 @@ struct fmt_main fmt_blizzard = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		prepare,
 		valid,
 		split,

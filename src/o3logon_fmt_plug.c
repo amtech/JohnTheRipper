@@ -21,6 +21,10 @@ john_register_one(&fmt_o3logon);
 #include <string.h>
 #include <openssl/des.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "common.h"
@@ -28,14 +32,7 @@ john_register_one(&fmt_o3logon);
 #include "sha.h"
 #include "unicode.h"
 #include "base64_convert.h"
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               512 // tuned on core i7
-//#define OMP_SCALE                8192 // tuned on K8-Dual HT
-#endif
-#endif
-
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL                    "o3logon"
@@ -92,13 +89,7 @@ static DES_key_schedule desschedule1;	// key 0x0123456789abcdef
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	DES_set_key((DES_cblock *)"\x01\x23\x45\x67\x89\xab\xcd\xef", &desschedule1);
 	cur_key = mem_calloc(self->params.max_keys_per_crypt,
@@ -109,6 +100,13 @@ static void init(struct fmt_main *self)
 	                       sizeof(*cur_key_len));
 	cracked = mem_calloc(self->params.max_keys_per_crypt,
 	                     sizeof(*cracked));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -389,7 +387,7 @@ struct fmt_main fmt_o3logon = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		split,

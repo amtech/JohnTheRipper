@@ -43,9 +43,6 @@ john_register_one(&fmt_zip);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               1	// Tuned on core i7
-#endif
 #endif
 
 #include "arch.h"
@@ -60,6 +57,7 @@ john_register_one(&fmt_zip);
 #include "pbkdf2_hmac_sha1.h"
 #include "dyna_salt.h"
 #include "hmac_sha.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define KEY_LENGTH(mode)        (8 * ((mode) & 3) + 8)
@@ -125,18 +123,19 @@ static my_salt *saved_salt;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
 	crypt_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*crypt_key));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -385,7 +384,7 @@ struct fmt_main fmt_zip = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		winzip_common_valid,
 		winzip_common_split,

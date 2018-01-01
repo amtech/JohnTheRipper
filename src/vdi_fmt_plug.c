@@ -27,14 +27,7 @@ john_register_one(&fmt_vdi);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#ifdef __MIC__
-#define OMP_SCALE               16
-#else
-#define OMP_SCALE               4
-#endif // __MIC__
-#endif // OMP_SCALE
-#endif // _OPENMP
+#endif
 
 #include "arch.h"
 #include "xts.h"
@@ -46,6 +39,7 @@ john_register_one(&fmt_vdi);
 #include "johnswap.h"
 #include "base64_convert.h"
 #include "pbkdf2_hmac_sha256.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define PLAINTEXT_LENGTH        125
@@ -101,18 +95,19 @@ static struct vdi_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	key_buffer = mem_calloc(self->params.max_keys_per_crypt,
 			sizeof(*key_buffer));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
 			sizeof(*crypt_out));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -374,7 +369,7 @@ struct fmt_main fmt_vdi = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

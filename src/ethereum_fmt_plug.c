@@ -15,11 +15,9 @@ john_register_one(&fmt_ethereum);
 #else
 
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               16 // tuned on i7-6600U
-#endif
 #endif
 
 #include "arch.h"
@@ -35,6 +33,7 @@ john_register_one(&fmt_ethereum);
 #include "KeccakHash.h"
 #include "aes.h"
 #include "jumbo.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_NAME             "Ethereum Wallet"
@@ -72,18 +71,19 @@ static union {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	crypt_out = mem_calloc(sizeof(*crypt_out), self->params.max_keys_per_crypt);
 
 	memcpy(dpad.data, "\x02\x00\x00\x00\x00\x00\x00\x00", 8);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -239,7 +239,7 @@ struct fmt_main fmt_ethereum = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		ethereum_common_valid,
 		fmt_default_split,

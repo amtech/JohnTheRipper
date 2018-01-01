@@ -39,15 +39,8 @@ john_register_one(&fmt_sapG);
 #include "options.h"
 #include "unicode.h"
 #include "johnswap.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
-
-#ifndef OMP_SCALE
-#if defined (SIMD_COEF_32)
-#define OMP_SCALE               32
-#else
-#define OMP_SCALE               2048
-#endif
-#endif
 
 #define FORMAT_LABEL            "sapg"
 #define FORMAT_NAME             "SAP CODVN F/G (PASSCODE)"
@@ -82,7 +75,7 @@ john_register_one(&fmt_sapG);
 #define MAX_KEYS_PER_CRYPT      1
 #endif
 
-static unsigned int threads = 1;
+static unsigned int sc_threads = 1;
 
 //this array is from disp+work (sap's worker process)
 #define MAGIC_ARRAY_SIZE 160
@@ -168,13 +161,7 @@ static void init(struct fmt_main *self)
 		self->params.plaintext_length = UTF8_PLAINTEXT_LENGTH;
 
 #if defined (_OPENMP)
-	threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	sc_threads = omp_autotune(self, NULL);
 #endif
 
 	max_keys = self->params.max_keys_per_crypt;
@@ -196,6 +183,13 @@ static void init(struct fmt_main *self)
 	crypt_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*crypt_key));
 	saved_key = saved_plain;
+#endif
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
 #endif
 }
 
@@ -287,7 +281,7 @@ static void *get_salt(char *ciphertext)
 
 static void clear_keys(void)
 {
-	memset(keyLen, 0, sizeof(*keyLen) * threads * MAX_KEYS_PER_CRYPT);
+	memset(keyLen, 0, sizeof(*keyLen) * sc_threads * MAX_KEYS_PER_CRYPT);
 }
 
 static void set_key(char *key, int index)
@@ -803,7 +797,7 @@ struct fmt_main fmt_sapG = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		split,

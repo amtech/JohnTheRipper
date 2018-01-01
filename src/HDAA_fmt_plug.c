@@ -22,27 +22,24 @@ john_register_one(&fmt_HDAA);
 #include <mmintrin.h>
 #endif
 
-#include "arch.h"
+#if !FAST_FORMATS_OMP
+#undef _OPENMP
+#endif
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 
+#include "arch.h"
 #include "misc.h"
 #include "common.h"
 #include "formats.h"
 #include "md5.h"
 #include "johnswap.h"
-
 #include "simd-intrinsics.h"
-#define ALGORITHM_NAME			"MD5 " MD5_ALGORITHM_NAME
-
-#if !FAST_FORMATS_OMP
-#undef _OPENMP
-#endif
-
-#if defined(_OPENMP)
-#include <omp.h>
-#endif
-
+#include "omp_autotune.h"
 #include "memdbg.h"
 
+#define ALGORITHM_NAME			"MD5 " MD5_ALGORITHM_NAME
 #define FORMAT_LABEL			"hdaa"
 #define FORMAT_NAME			"HTTP Digest access authentication"
 
@@ -58,16 +55,7 @@ john_register_one(&fmt_HDAA);
 #define SALT_ALIGN			sizeof(size_t)
 
 #if defined(_OPENMP)
-static unsigned int threads = 1;
-#ifdef SIMD_COEF_32
-#ifndef OMP_SCALE
-#define OMP_SCALE			256
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE			64
-#endif
-#endif
+static unsigned int sc_threads = 1;
 #endif
 
 #ifdef SIMD_COEF_32
@@ -159,13 +147,7 @@ static void init(struct fmt_main *self)
 	int i;
 #endif
 #if defined (_OPENMP)
-	threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	sc_threads = omp_autotune(self);
 #endif
 #ifdef SIMD_COEF_32
 	for (i = 0; i < LIMBS; i++)
@@ -183,6 +165,13 @@ static void init(struct fmt_main *self)
 #endif
 	saved_plain = mem_calloc(self->params.max_keys_per_crypt,
 	                         sizeof(*saved_plain));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -290,7 +279,7 @@ static int cmp_all(void *binary, int count)
 #ifdef SIMD_COEF_32
 	unsigned int x, y;
 #ifdef _OPENMP
-	for (y = 0; y < SIMD_PARA_MD5 * threads; y++)
+	for (y = 0; y < SIMD_PARA_MD5 * sc_threads; y++)
 #else
 	for (y = 0; y < SIMD_PARA_MD5; y++)
 #endif
@@ -786,7 +775,7 @@ struct fmt_main fmt_HDAA = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		split,

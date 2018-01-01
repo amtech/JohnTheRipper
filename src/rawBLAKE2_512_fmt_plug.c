@@ -14,22 +14,19 @@ john_register_one(&fmt_rawBLAKE2);
 
 #include <string.h>
 
+#include "arch.h"
 #if !FAST_FORMATS_OMP
 #undef _OPENMP
 #endif
-
 #ifdef _OPENMP
-#ifndef OMP_SCALE
-#define OMP_SCALE               2048
-#endif
 #include <omp.h>
 #endif
 
-#include "arch.h"
 #include "blake2.h"
 #include "params.h"
 #include "common.h"
 #include "formats.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "Raw-Blake2"
@@ -81,13 +78,7 @@ static uint32_t (*crypt_out)
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_len = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_len));
@@ -95,6 +86,13 @@ static void init(struct fmt_main *self)
 	                       sizeof(*saved_key));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*crypt_out));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -223,7 +221,7 @@ struct fmt_main fmt_rawBLAKE2 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		split,

@@ -24,6 +24,11 @@ john_register_one(&fmt_mscash);
 #else
 
 #include <string.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "memory.h"
@@ -34,14 +39,7 @@ john_register_one(&fmt_mscash);
 #include "loader.h"
 #include "johnswap.h"
 #include "mscash_common.h"
-
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE			192
-#endif
-#endif
-
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL			"mscash"
@@ -96,10 +94,7 @@ inline static void swap(unsigned int *x, int count)
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= threads;
-	threads *= OMP_SCALE;
-	fmt_mscash.params.max_keys_per_crypt *= threads;
+	omp_autotune(self, NULL);
 #endif
 
 	ms_buffer1x = mem_calloc(sizeof(ms_buffer1x[0]), 16*fmt_mscash.params.max_keys_per_crypt);
@@ -112,6 +107,13 @@ static void init(struct fmt_main *self)
 
 	mscash1_adjust_tests(self, options.target_enc, PLAINTEXT_LENGTH,
 	                     set_key_utf8, set_key_encoding);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -751,7 +753,7 @@ struct fmt_main fmt_mscash = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		mscash1_common_prepare,
 		mscash1_common_valid,
 		mscash1_common_split,

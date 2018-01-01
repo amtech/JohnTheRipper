@@ -13,11 +13,9 @@ john_register_one(&fmt_cq);
 #else
 
 #include <string.h>
+
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE 256	// core i7 no HT
-#endif
 #endif
 
 #include "arch.h"
@@ -26,6 +24,7 @@ john_register_one(&fmt_cq);
 #include "common.h"
 #include "formats.h"
 #include "options.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL        "cq"
@@ -335,18 +334,19 @@ unsigned int AdEncryptPassword(const char* username, const char* password) {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc_align(sizeof(*saved_key),
 		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 	crypt_key = mem_calloc_align(sizeof(*crypt_key),
 		self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -498,7 +498,7 @@ struct fmt_main fmt_cq = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

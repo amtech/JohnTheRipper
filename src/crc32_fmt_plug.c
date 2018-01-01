@@ -36,21 +36,22 @@ john_register_one(&fmt_crc32);
 
 #include <string.h>
 
-#include "common.h"
-#include "formats.h"
-#include "crc32.h"
-#include "loader.h"
-
+#if AC_BUILT
+#include "autoconfig.h"
+#endif
 #if !FAST_FORMATS_OMP
 #undef _OPENMP
 #endif
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE       256	// tuned on core i7
 #endif
-#endif
+
+#include "common.h"
+#include "formats.h"
+#include "crc32.h"
+#include "loader.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL			"CRC32"
@@ -96,20 +97,21 @@ static unsigned int crctype;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int n = omp_get_max_threads();
-	if (n > 4) {
-		n = 4; // it just won't scale further
-		omp_set_num_threads(n);
-	}
-	self->params.max_keys_per_crypt *= (n*OMP_SCALE);
+	omp_autotune(self, NULL);
 #endif
-	//printf("Using %u x %u = %u keys per crypt\n", MAX_KEYS_PER_CRYPT, n, self->params.max_keys_per_crypt);
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
 	crcs      = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*crcs));
 
 	pFmt = self;
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -293,7 +295,7 @@ struct fmt_main fmt_crc32 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

@@ -85,9 +85,6 @@ john_register_one(&fmt_NETNTLM_new);
 #define NBKEYS                  (SIMD_COEF_32 * SIMD_PARA_MD4)
 #else
 #ifdef _OPENMP
-#ifndef OMP_SCALE
-#define OMP_SCALE               4
-#endif
 #include <omp.h>
 #endif
 #endif
@@ -103,6 +100,7 @@ john_register_one(&fmt_NETNTLM_new);
 #include "md5.h"
 #include "unicode.h"
 #include "john.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 extern volatile int bench_running;
@@ -969,13 +967,7 @@ bailout:
 static void init(struct fmt_main *self)
 {
 #if defined (_OPENMP) && !defined(SIMD_COEF_32)
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	my = self;
 	if (options.target_enc == UTF_8) {
@@ -1009,6 +1001,13 @@ static void init(struct fmt_main *self)
 		memset(bitmap, 0, 0x10000 / 8);
 	use_bitmap = 0; /* we did not use bitmap yet */
 	cmps_per_crypt = 2; /* try bitmap */
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP) && !defined(SIMD_COEF_32)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -1384,7 +1383,7 @@ struct fmt_main fmt_MSCHAPv2_new = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		chap_prepare,
 		chap_valid,
 		chap_split,
@@ -1448,7 +1447,7 @@ struct fmt_main fmt_NETNTLM_new = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		ntlm_prepare,
 		ntlm_valid,
 		ntlm_split,

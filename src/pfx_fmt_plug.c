@@ -12,6 +12,11 @@ john_register_one(&fmt_pfx);
 #else
 
 #include <string.h>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "memory.h"
@@ -19,18 +24,13 @@ john_register_one(&fmt_pfx);
 #include "formats.h"
 #include "johnswap.h"
 #include "hmac_sha.h"
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               1
-#endif
-#endif
 #include "twofish.h"
 #include "sha.h"
 #include "loader.h"
 #include "simd-intrinsics.h"
 #include "pkcs12.h"
 #include "pfx_common.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "pfx"
@@ -85,13 +85,7 @@ static uint32_t (*crypt_out)[BINARY_SIZE / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 			sizeof(*saved_key));
@@ -99,6 +93,13 @@ static void init(struct fmt_main *self)
 			sizeof(*saved_len));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
 			sizeof(*crypt_out));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -471,7 +472,7 @@ struct fmt_main fmt_pfx = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

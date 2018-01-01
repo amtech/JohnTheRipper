@@ -13,12 +13,6 @@
 #include <stdint.h>
 #include <assert.h>
 #include <errno.h>
-#ifdef _OPENMP
-#include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE		1
-#endif
-#endif
 
 #include "arch.h"
 #include "misc.h"

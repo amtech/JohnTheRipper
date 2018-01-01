@@ -60,13 +60,9 @@ john_register_one(&fmt_dmg);
 #include <stdint.h>
 #include <sys/types.h>
 #include <openssl/des.h>
-#include "aes.h"
-#include "hmac_sha.h"
+
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               64
-#endif
 #endif
 
 #ifdef DMG_DEBUG
@@ -79,6 +75,8 @@ john_register_one(&fmt_dmg);
 #include "johnswap.h"
 #include "common.h"
 #include "formats.h"
+#include "aes.h"
+#include "hmac_sha.h"
 #include "dmg_common.h"
 #include "pbkdf2_hmac_sha1.h"
 #ifdef DMG_DEBUG
@@ -89,6 +87,7 @@ john_register_one(&fmt_dmg);
 extern volatile int bench_running;
 #endif
 #include "loader.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL        "dmg"
@@ -146,21 +145,21 @@ static struct custom_salt {
 
 static void init(struct fmt_main *self)
 {
-
 #if defined (_OPENMP)
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc_align(sizeof(*saved_key),
 			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 	cracked = mem_calloc_align(sizeof(*cracked),
 			self->params.max_keys_per_crypt, MEM_ALIGN_WORD);
 	cracked_count = self->params.max_keys_per_crypt;
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -726,7 +725,7 @@ struct fmt_main fmt_dmg = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

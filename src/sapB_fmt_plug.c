@@ -22,6 +22,11 @@ john_register_one(&fmt_sapB);
 #include <string.h>
 #include <ctype.h>
 
+#if defined(_OPENMP)
+#include <omp.h>
+static unsigned int sc_threads = 1;
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "common.h"
@@ -31,6 +36,9 @@ john_register_one(&fmt_sapB);
 #include "options.h"
 #include "unicode.h"
 #include "md5.h"
+#include "simd-intrinsics.h"
+#include "omp_autotune.h"
+#include "memdbg.h"
 
 #define FORMAT_LABEL			"sapb"
 #define FORMAT_NAME			"SAP CODVN B (BCODE)"
@@ -38,24 +46,7 @@ john_register_one(&fmt_sapB);
 #ifdef SIMD_COEF_32
 #define NBKEYS				(SIMD_COEF_32 * SIMD_PARA_MD5)
 #endif
-#include "simd-intrinsics.h"
 #define ALGORITHM_NAME			"MD5 " MD5_ALGORITHM_NAME
-
-#if defined(_OPENMP)
-#include <omp.h>
-static unsigned int threads = 1;
-#ifdef SIMD_COEF_32
-#ifndef OMP_SCALE
-#define OMP_SCALE			512	// tuned on K8-dual HT.
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE			2048
-#endif
-#endif
-#endif
-
-#include "memdbg.h"
 
 #define BENCHMARK_COMMENT		""
 #define BENCHMARK_LENGTH		0
@@ -198,10 +189,7 @@ static void init(struct fmt_main *self)
 		fprintf(stderr, "Warning: SAP-B format should never be UTF-8.\nUse --target-encoding=iso-8859-1 or whatever is applicable.\n");
 
 #if defined (_OPENMP)
-	threads = omp_get_max_threads();
-	self->params.min_keys_per_crypt = (threads * MIN_KEYS_PER_CRYPT);
-	threads *= OMP_SCALE;
-	self->params.max_keys_per_crypt = (threads * MAX_KEYS_PER_CRYPT);
+	sc_threads = omp_autotune(self, NULL);
 #endif
 #ifdef SIMD_COEF_32
 	saved_key  = mem_calloc_align(self->params.max_keys_per_crypt,
@@ -222,6 +210,13 @@ static void init(struct fmt_main *self)
 	                         sizeof(*saved_plain) );
 	keyLen = mem_calloc(self->params.max_keys_per_crypt,
 	                    sizeof(*keyLen));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -313,7 +308,7 @@ static int cmp_all(void *binary, int count) {
 	unsigned int x, y;
 
 #ifdef _OPENMP
-	for (y = 0; y < SIMD_PARA_MD5*threads; y++)
+	for (y = 0; y < SIMD_PARA_MD5*sc_threads; y++)
 #else
 	for (y = 0; y < SIMD_PARA_MD5; y++)
 #endif
@@ -514,7 +509,7 @@ static int crypt_all(int *pcount, struct db_salt *salt)
 #if defined(_OPENMP)
 	int t;
 #pragma omp parallel for
-	for (t = 0; t < threads; t++)
+	for (t = 0; t < sc_threads; t++)
 #define ti (t*NBKEYS+index)
 #else
 #define t  0
@@ -772,7 +767,7 @@ struct fmt_main fmt_sapB = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		split,

@@ -20,9 +20,6 @@ john_register_one(&fmt_multibit);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               2
-#endif
 #endif
 
 #include "arch.h"
@@ -36,6 +33,7 @@ john_register_one(&fmt_multibit);
 #include "escrypt/crypto_scrypt.h"
 #include "jumbo.h"
 #include "unicode.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_NAME             "MultiBit Wallet"
@@ -51,7 +49,7 @@ john_register_one(&fmt_multibit);
 #define SALT_ALIGN              sizeof(uint32_t)
 #define PLAINTEXT_LENGTH        125
 #define MIN_KEYS_PER_CRYPT      1
-#define MAX_KEYS_PER_CRYPT      64 // just 4 is better for v2 salts
+#define MAX_KEYS_PER_CRYPT      4
 
 static struct fmt_tests multibit_tests[] = {
 	// Wallets created by MultiBit Classic 0.5.18
@@ -85,17 +83,18 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	cracked = mem_calloc(sizeof(*cracked), self->params.max_keys_per_crypt);
 	cracked_count = self->params.max_keys_per_crypt;
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -446,7 +445,7 @@ struct fmt_main fmt_multibit = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,

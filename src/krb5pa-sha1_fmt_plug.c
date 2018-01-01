@@ -42,10 +42,8 @@ john_register_one(&fmt_krb5pa);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               64
 #endif
-#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "formats.h"
@@ -58,6 +56,7 @@ john_register_one(&fmt_krb5pa);
 #include "hmac_sha.h"
 #include "pbkdf2_hmac_sha1.h"
 #include "krb5_common.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL       "krb5pa-sha1"
@@ -120,14 +119,9 @@ static unsigned char ki_input[16];
 static void init(struct fmt_main *self)
 {
 	unsigned char usage[5];
-#ifdef _OPENMP
-	int threads = omp_get_max_threads();
 
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+#ifdef _OPENMP
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(sizeof(*saved_key), self->params.max_keys_per_crypt);
 	crypt_out = mem_calloc(sizeof(*crypt_out), self->params.max_keys_per_crypt);
@@ -144,6 +138,13 @@ static void init(struct fmt_main *self)
 	usage[3] = 0x01;        // key number in big-endian format
 	usage[4] = 0x55;        // used to derive Ki
 	nfold(sizeof(usage) * 8, usage, sizeof(ki_input) * 8, ki_input);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -450,7 +451,7 @@ struct fmt_main fmt_krb5pa = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		split,

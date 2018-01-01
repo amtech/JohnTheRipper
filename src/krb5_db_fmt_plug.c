@@ -40,6 +40,10 @@ john_register_one(&fmt_krb5_3);
 
 #include <string.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include "arch.h"
 #include "misc.h"
 #include "common.h"
@@ -51,21 +55,7 @@ john_register_one(&fmt_krb5_3);
 #include "pbkdf2_hmac_sha1.h"
 #include "aes.h"
 #include "krb5_common.h"
-
-// OpenMP configuration needs to be here.
-#ifdef _OPENMP
-#include <omp.h>
-#ifdef SIMD_COEF_32
-#ifndef OMP_SCALE
-#define OMP_SCALE               8
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE               32
-#endif
-#endif
-#endif
-
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "krb5-18"
@@ -140,18 +130,19 @@ static struct custom_salt {
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	saved_key = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*saved_key));
 	crypt_out = mem_calloc(self->params.max_keys_per_crypt,
 	                       sizeof(*crypt_out));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -393,7 +384,7 @@ struct fmt_main fmt_krb5_18 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid_18,
 		split,
@@ -442,7 +433,7 @@ struct fmt_main fmt_krb5_17 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid_17,
 		split,
@@ -491,7 +482,7 @@ struct fmt_main fmt_krb5_3 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid_3,
 		split,

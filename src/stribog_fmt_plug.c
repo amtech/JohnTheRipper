@@ -23,9 +23,6 @@ john_register_one(&fmt_stribog_512);
 
 #ifdef _OPENMP
 #include <omp.h>
-#ifndef OMP_SCALE
-#define OMP_SCALE               512 // XXX
-#endif
 #endif
 
 #include "arch.h"
@@ -35,6 +32,7 @@ john_register_one(&fmt_stribog_512);
 #include "params.h"
 #include "options.h"
 #include "gost3411-2012-sse41.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL            "stribog"
@@ -97,19 +95,20 @@ static uint32_t (*crypt_out)[BINARY_SIZE_512 / sizeof(uint32_t)];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 	if (!saved_key) {
 		saved_key = mem_calloc_align(self->params.max_keys_per_crypt, sizeof(*saved_key), MEM_ALIGN_SIMD);
 	}
 	if (!crypt_out)
 		crypt_out = mem_calloc(self->params.max_keys_per_crypt,	sizeof(*crypt_out));
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void done(void)
@@ -368,7 +367,7 @@ struct fmt_main fmt_stribog_256 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid_256,
 		split_256,
@@ -429,7 +428,7 @@ struct fmt_main fmt_stribog_512 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid_512,
 		split_512,

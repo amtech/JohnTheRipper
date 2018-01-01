@@ -16,7 +16,9 @@ john_register_one(&fmt_hmacSHA224);
 john_register_one(&fmt_hmacSHA256);
 #else
 
-#include "sha2.h"
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "arch.h"
 #include "misc.h"
@@ -24,20 +26,9 @@ john_register_one(&fmt_hmacSHA256);
 #include "base64_convert.h"
 #include "formats.h"
 #include "johnswap.h"
+#include "sha2.h"
 #include "simd-intrinsics.h"
-
-#ifdef _OPENMP
-#include <omp.h>
-#ifdef SIMD_COEF_32
-#ifndef OMP_SCALE
-#define OMP_SCALE               2048 // scaled on core i7-quad HT
-#endif
-#else
-#ifndef OMP_SCALE
-#define OMP_SCALE               512 // scaled K8-dual HT
-#endif
-#endif
-#endif
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL			"HMAC-SHA256"
@@ -141,13 +132,7 @@ static void init(struct fmt_main *self, const int B_LEN)
 	int i;
 #endif
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-
-	if (threads > 1) {
-		self->params.min_keys_per_crypt *= threads;
-		threads *= OMP_SCALE;
-		self->params.max_keys_per_crypt *= threads;
-	}
+	omp_autotune(self, NULL);
 #endif
 #ifdef SIMD_COEF_32
 	bufsize = sizeof(*opad) * self->params.max_keys_per_crypt * PAD_SIZE;
@@ -183,6 +168,13 @@ static void init_256(struct fmt_main *self) {
 static void init_224(struct fmt_main *self) {
 	init(self, BINARY_SIZE_224);
 }
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
+}
+
 static void done(void)
 {
 	MEM_FREE(saved_plain);
@@ -646,7 +638,7 @@ struct fmt_main fmt_hmacSHA256 = {
 	}, {
 		init_256,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid_256,
 		split_256,
@@ -699,7 +691,7 @@ struct fmt_main fmt_hmacSHA224 = {
 	}, {
 		init_224,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid_224,
 		split_224,
