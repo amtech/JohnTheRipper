@@ -13,8 +13,13 @@
 #include "logger.h"
 #include "formats.h"
 #include "timer.h"
-//#include "dyna_salt.h"
 #include "memdbg.h"
+
+#define SAMPLE_TIME 0.020  /* Seconds to test speed (20 ms) */
+#define REQ_GAIN 1.05      /* Minimum boost to consider a better scale */
+#define MAX_TUNE_TIME 0.1  /* If we're slower than 100 ms, stop here */
+#define MAX_NO_PROGRESS 3  /* Don't bother trying higher scale if this many
+                              doubles did no good */
 
 extern volatile int bench_running;
 
@@ -27,6 +32,7 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 	int best_scale = 1, scale = 1;
 	int best_cps = 0;
 	int no_progress = 0;
+	int min_crypts = 0;
 	void *salt;
 	char key[] = "testkey0";
 	sTimer timer;
@@ -39,11 +45,17 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 		fmt = format;
 		mkpc = fmt->params.max_keys_per_crypt * threads;
 		return threads;
-	} else {
-		omp_autotune_running = 1;
-		fprintf(stderr, "\n%s OMP autotune using %s db\n",
-		        fmt->params.label, db->real ? "real" : "test");
 	}
+
+	if (john_main_process &&
+	    options.verbosity > VERB_DEFAULT && bench_running)
+		fprintf(stderr, "\n");
+
+	omp_autotune_running = 1;
+	if (john_main_process && options.verbosity == VERB_MAX)
+		fprintf(stderr, "%s OMP autotune using %s db\n",
+		        fmt->params.label, db->real ? "real" : "test");
+
 
 	fmt->params.min_keys_per_crypt *= threads;
 
@@ -59,10 +71,6 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 	fmt->methods.set_salt(salt);
 
 	sTimer_Init(&timer);
-
-	if (john_main_process &&
-	    options.verbosity > VERB_DEFAULT && bench_running)
-		fprintf(stderr, "\n");
 
 	do {
 		int i;
@@ -80,6 +88,7 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 		// Load keys
 		fmt->methods.clear_keys();
 		for (i = 0; i < this_kpc; i++) {
+			key[6] = '0' + (i / 10) % 10;
 			key[7] = '0' + i % 10;
 			fmt->methods.set_key(key, i);
 		}
@@ -90,7 +99,7 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 
 			fmt->methods.crypt_all(&count, NULL);
 			crypts += count;
-		} while (sTimer_GetSecs(&timer) < 0.010);
+		} while (crypts < min_crypts || sTimer_GetSecs(&timer) < SAMPLE_TIME);
 		sTimer_Stop(&timer);
 
 		duration = sTimer_GetSecs(&timer);
@@ -100,12 +109,12 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 			fprintf(stderr, "scale %d: %d crypts in %f seconds, %d c/s",
 			        scale, crypts, duration, (int)(crypts / duration));
 
-		// Example, require 5% boost (because a low KPC has some advantages)
-		if (cps >= (best_cps * 1.05)) {
+		if (cps >= (best_cps * REQ_GAIN)) {
 			if (john_main_process && options.verbosity == VERB_MAX)
 				fprintf(stderr, " +\n");
 			best_cps = cps;
 			best_scale = scale;
+			no_progress = 0;
 		}
 		else {
 			if (john_main_process && options.verbosity == VERB_MAX)
@@ -113,9 +122,11 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 			no_progress++;
 		}
 
+		min_crypts = crypts;
+
 		// Double each time
 		scale *= 2;
-	} while (duration < 0.1 && no_progress < 3);
+	} while (duration < MAX_TUNE_TIME && no_progress < MAX_NO_PROGRESS);
 
 	//if (!fmt->methods.tunable_cost_value[0] || !db->real)
 	//	dyna_salt_remove(salt);
