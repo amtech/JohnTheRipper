@@ -11,13 +11,15 @@ john_register_one(&fmt_lotus5);
 
 #include <stdio.h>
 #include <string.h>
-#include "misc.h"
-#include "formats.h"
-#include "common.h"
+
 #ifdef _OPENMP
 #include <omp.h>
 #endif
 
+#include "misc.h"
+#include "formats.h"
+#include "common.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #ifdef __x86_64__
@@ -102,13 +104,7 @@ static char (*saved_key)[PLAINTEXT_LENGTH + 1];
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int n = omp_get_max_threads();
-	if (n < 1)
-		n = 1;
-	n *= 2;
-	if (n > self->params.max_keys_per_crypt)
-		n = self->params.max_keys_per_crypt;
-	self->params.min_keys_per_crypt = n;
+	omp_autotune(self, NULL);
 #endif
 
 	crypt_key = mem_calloc_align(sizeof(*crypt_key),
@@ -121,6 +117,13 @@ static void done(void)
 {
 	MEM_FREE(crypt_key);
 	MEM_FREE(saved_key);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 /*Utility function to convert hex to bin */
@@ -375,7 +378,7 @@ struct fmt_main fmt_lotus5 = {
 	}, {
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
