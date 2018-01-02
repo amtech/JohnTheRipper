@@ -36,7 +36,7 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 	int min_crypts = 0;
 	int tune_cost;
 	void *salt;
-	char key[] = "tune0000";
+	char key[PLAINTEXT_BUFFER_SIZE] = "tune0000";
 	sTimer timer;
 	double duration;
 
@@ -117,6 +117,7 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 			fmt->methods.set_key(key, i);
 		}
 
+		// Set the salt we picked earlier
 		fmt->methods.set_salt(salt);
 
 		sTimer_Start(&timer, 1);
