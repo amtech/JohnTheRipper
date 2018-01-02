@@ -46,6 +46,7 @@ john_register_one(&fmt_wpapsk);
   #endif
 #endif
 
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"wpapsk"
@@ -77,9 +78,7 @@ extern mic_t *mic;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= threads;
-	self->params.max_keys_per_crypt *= threads;
+	omp_autotune(self, NULL);
 #endif
 
 	assert(sizeof(hccap_t) == HCCAP_SIZE);
@@ -107,6 +106,13 @@ static void done(void)
 	MEM_FREE(mic);
 	MEM_FREE(outbuffer);
 	MEM_FREE(inbuffer);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 #ifndef SIMD_COEF_32
@@ -204,7 +210,7 @@ struct fmt_main fmt_wpapsk = {
 	{
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
