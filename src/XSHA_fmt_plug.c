@@ -107,7 +107,7 @@ static void init(struct fmt_main *self)
 
 static void reset(struct db_main *db)
 {
-#if defined (_OPENMP)
+#if SIMD_COEF_32 && _OPENMP
 	omp_autotune(NULL, db);
 #endif
 }
@@ -307,7 +307,10 @@ struct fmt_main fmt_XSHA = {
 		SALT_ALIGN,
 		MIN_KEYS_PER_CRYPT,
 		MAX_KEYS_PER_CRYPT,
-		FMT_OMP | FMT_OMP_BAD | FMT_CASE | FMT_8_BIT,
+#if SIMD_COEF_32 && _OPENMP
+		FMT_OMP | FMT_OMP_BAD |
+#endif
+		FMT_CASE | FMT_8_BIT,
 		{ NULL },
 		{ NULL },
 		tests
