@@ -34,6 +34,7 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 	int best_cps = 0;
 	int no_progress = 0;
 	int min_crypts = 0;
+	int tune_cost;
 	void *salt;
 	char key[] = "tune0000";
 	sTimer timer;
@@ -74,10 +75,6 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 	    options.verbosity > VERB_DEFAULT && bench_running)
 		fprintf(stderr, "\n");
 
-	if (john_main_process && options.verbosity == VERB_MAX)
-		fprintf(stderr, "%s OMP autotune using %s db\n",
-		        fmt->params.label, db->real ? "real" : "test");
-
 	omp_autotune_running = 1;
 
 	// Find most expensive salt, for auto-tune
@@ -85,13 +82,18 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 		struct db_main *tune_db = db->real ? db->real : db;
 		struct db_salt *s = tune_db->salts;
 
-		while (s->next && s->cost[0] < tune_db->max_cost[0])
+		tune_cost = MIN(tune_db->max_cost[0], options.loader.max_cost[0]);
+
+		while (s->next && s->cost[0] < tune_cost)
 			s = s->next;
 		salt = s->salt;
 	}
 
-	sTimer_Init(&timer);
+	if (john_main_process && options.verbosity == VERB_MAX)
+		fprintf(stderr, "%s OMP autotune using %s db with cost 1 of %d\n",
+		        fmt->params.label, db->real ? "real" : "test", tune_cost);
 
+	sTimer_Init(&timer);
 	do {
 		int i;
 		int this_kpc = mkpc * threads * scale;
