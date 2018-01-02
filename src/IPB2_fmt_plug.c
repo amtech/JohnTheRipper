@@ -142,8 +142,9 @@ static void init(struct fmt_main *self)
 #if SIMD_COEF_32
 	unsigned int i;
 #endif
+
 #if defined (_OPENMP)
-	sc_threads = omp_autotune(self, NULL) / NBKEYS;
+	sc_threads = omp_autotune(self, NULL);
 #endif
 #if SIMD_COEF_32
 	key_buf   = mem_calloc_align(self->params.max_keys_per_crypt,
@@ -171,7 +172,7 @@ static void init(struct fmt_main *self)
 static void reset(struct db_main *db)
 {
 #if defined (_OPENMP)
-	sc_threads = omp_autotune(NULL, db) / NBKEYS;
+	omp_autotune(NULL, db);
 #endif
 }
 
