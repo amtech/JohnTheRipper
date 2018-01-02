@@ -89,7 +89,6 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 			s = s->next;
 		salt = s->salt;
 	}
-	fmt->methods.set_salt(salt);
 
 	sTimer_Init(&timer);
 
@@ -115,6 +114,8 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 			key[7] = '0' + i % 10;
 			fmt->methods.set_key(key, i);
 		}
+
+		fmt->methods.set_salt(salt);
 
 		sTimer_Start(&timer, 1);
 		do {
