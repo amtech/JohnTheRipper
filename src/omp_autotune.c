@@ -15,7 +15,6 @@
 #include "timer.h"
 #include "memdbg.h"
 
-//#define OMP_DEBUG
 #define SAMPLE_TIME 0.010  /* Seconds to test speed (10 ms) */
 #define REQ_GAIN 1.05      /* Minimum boost to consider a better scale */
 #define MAX_TUNE_TIME 0.1  /* If we're slower than 100 ms, stop here */
@@ -40,36 +39,22 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 	sTimer timer;
 	double duration;
 
-	if (omp_autotune_running) {
-#ifdef OMP_DEBUG
-		if (john_main_process && options.verbosity == VERB_MAX)
-			fprintf(stderr, "(kpc %d return %d)\n", fmt->params.max_keys_per_crypt, fmt->params.max_keys_per_crypt / mkpc);
-#endif
+	if (omp_autotune_running)
 		return fmt->params.max_keys_per_crypt / mkpc;
-	} else if (threads == 1) {
-#ifdef OMP_DEBUG
-		if (john_main_process && options.verbosity == VERB_MAX)
-			fprintf(stderr, "(return 1)\n");
-#endif
+	else if (threads == 1)
 		return 1;
-	}
-
-#ifdef OMP_DEBUG
-	if (john_main_process && options.verbosity == VERB_MAX)
-		fprintf(stderr, "\nautotune called from %s()\n", format ? "init" : "reset");
-#endif
 
 	if (!db) {
 		fmt = format;
 		mkpc = fmt->params.max_keys_per_crypt;
 		fmt->params.min_keys_per_crypt *= threads;
 		fmt->params.max_keys_per_crypt *= threads;
-#ifdef OMP_DEBUG
-		if (john_main_process && options.verbosity == VERB_MAX)
-			fprintf(stderr, "%s initial mkpc %d\n", fmt->params.label, mkpc);
-#endif
 		return threads;
 	}
+
+	if (!fmt)
+		error_msg("%s(): Bug: called from reset() but not from init()\n",
+		          __FUNCTION__);
 
 	if (john_main_process &&
 	    options.verbosity > VERB_DEFAULT && bench_running)
@@ -174,11 +159,9 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 	}
 
 	omp_autotune_running = 0;
+	fmt = NULL;
+	mkpc = 0;
 
-#ifdef OMP_DEBUG
-	if (john_main_process && options.verbosity == VERB_MAX)
-		fprintf(stderr, "autotune return %dx%d=%d\n", threads, best_scale, threads * best_scale);
-#endif
 	return threads * best_scale;
 }
 
