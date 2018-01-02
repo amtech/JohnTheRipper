@@ -24,6 +24,7 @@ john_register_one(&fmt_wpapsk_pmk);
 #include "wpapmk.h"
 #include "sha.h"
 #include "base64_convert.h"
+#include "omp_autotune.h"
 #include "memdbg.h"
 
 #define FORMAT_LABEL		"wpapsk-pmk"
@@ -51,9 +52,7 @@ extern mic_t *mic;
 static void init(struct fmt_main *self)
 {
 #ifdef _OPENMP
-	int threads = omp_get_max_threads();
-	self->params.min_keys_per_crypt *= threads;
-	self->params.max_keys_per_crypt *= threads;
+	omp_autotune(self, NULL);
 #endif
 
 	assert(sizeof(hccap_t) == HCCAP_SIZE);
@@ -68,6 +67,13 @@ static void done(void)
 {
 	MEM_FREE(mic);
 	MEM_FREE(outbuffer);
+}
+
+static void reset(struct db_main *db)
+{
+#if defined (_OPENMP)
+	omp_autotune(NULL, db);
+#endif
 }
 
 static void set_key(char *key, int index)
@@ -132,7 +138,7 @@ struct fmt_main fmt_wpapsk_pmk = {
 	{
 		init,
 		done,
-		fmt_default_reset,
+		reset,
 		fmt_default_prepare,
 		valid,
 		fmt_default_split,
