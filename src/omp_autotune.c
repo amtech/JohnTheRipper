@@ -74,9 +74,14 @@ int omp_autotune(struct fmt_main *format, struct db_main *db)
 		salt = s->salt;
 	}
 
-	if (john_main_process && options.verbosity == VERB_MAX)
-		fprintf(stderr, "%s OMP autotune using %s db with cost 1 of %d\n",
-		        fmt->params.label, db->real ? "real" : "test", tune_cost);
+	if (john_main_process && options.verbosity == VERB_MAX) {
+		fprintf(stderr, "%s OMP autotune using %s db",
+		        fmt->params.label, db->real ? "real" : "test");
+		if (fmt->methods.tunable_cost_value[0])
+			fprintf(stderr, " with %s of %d\n",
+			        fmt->params.tunable_cost_name[0], tune_cost);
+		fprintf(stderr, "\n");
+	}
 
 	sTimer_Init(&timer);
 	do {
